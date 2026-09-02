@@ -596,6 +596,119 @@ td:first-child small {
   color: #365885;
   white-space: nowrap;
 }
+
+.admin-guide .section-intro {
+  margin-top: 0;
+}
+
+.guide-workflow {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.guide-workflow-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 18px;
+  padding: 20px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.guide-workflow-row:last-child {
+  border-bottom: 0;
+}
+
+.guide-workflow-row > span {
+  color: var(--green);
+  font-family: Georgia, serif;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.guide-workflow-row h2,
+.guide-reference h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.guide-workflow-row p {
+  max-width: 850px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.guide-reference {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.32fr) minmax(0, 1fr);
+  gap: 34px;
+  padding: 28px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.guide-reference > div > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--green);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.guide-reference dl,
+.guide-reference ul {
+  margin: 0;
+  padding: 0;
+}
+
+.guide-reference dl > div {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 0 13px;
+}
+
+.guide-reference dl > div:last-child {
+  padding-bottom: 0;
+}
+
+.guide-reference dt {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.guide-reference dd,
+.guide-reference li {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.guide-reference ul {
+  list-style: none;
+}
+
+.guide-reference li {
+  position: relative;
+  padding: 0 0 11px 17px;
+}
+
+.guide-reference li:last-child {
+  padding-bottom: 0;
+}
+
+.guide-reference li::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
 .setting-action {
   display: flex;
   align-items: center;
@@ -1177,6 +1290,19 @@ td:first-child small {
     flex-direction: column;
     gap: 16px;
     padding: 22px 2px;
+  }
+  .guide-workflow-row {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    padding: 17px 2px;
+  }
+  .guide-workflow-row > span {
+    font-size: 15px;
+  }
+  .guide-reference {
+    grid-template-columns: 1fr;
+    gap: 15px;
+    padding: 23px 2px;
   }
   .editor-drawer {
     width: 100%;

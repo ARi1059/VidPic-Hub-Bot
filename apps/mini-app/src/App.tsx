@@ -4,16 +4,21 @@ import { useQuery } from "@tanstack/react-query";
 import type { RecommendationResult, WorkListItem, WorkType } from "@film-bot/contracts";
 import gsap from "gsap";
 import {
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   Bookmark,
   ChevronRight,
+  CircleHelp,
   Clock3,
   Crown,
   Heart,
   Home,
+  Images,
   Layers3,
   LoaderCircle,
+  LockKeyhole,
+  MessageCircle,
   Play,
   RotateCcw,
   Search,
@@ -30,6 +35,7 @@ import { telegram } from "./telegram.js";
 gsap.registerPlugin(useGSAP);
 
 type NavigationTab = "home" | "explore" | "favorites" | "profile";
+type NavigationView = NavigationTab | "help";
 type Category = "all" | WorkType;
 
 const categoryOptions: Array<{ value: Category; label: string }> = [
@@ -43,7 +49,9 @@ const categoryOptions: Array<{ value: Category; label: string }> = [
 const recordedImpressions = new Set<string>();
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<NavigationTab>("home");
+  const [activeView, setActiveView] = useState<NavigationView>(() =>
+    new URLSearchParams(window.location.search).get("view") === "help" ? "help" : "home",
+  );
   const [selectedWork, setSelectedWork] = useState<WorkListItem | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -57,9 +65,12 @@ export function App() {
 
   useEffect(() => {
     telegram.initialize();
-    const removeBack = telegram.setBackAction(null);
-    return removeBack;
   }, []);
+
+  useEffect(
+    () => telegram.setBackAction(activeView === "help" ? () => changeView("profile") : null),
+    [activeView],
+  );
 
   useEffect(() => {
     if (!toast) return;
@@ -111,8 +122,8 @@ export function App() {
   return (
     <MainShell
       profile={sessionQuery.data}
-      activeTab={activeTab}
-      onTabChange={setActiveTab}
+      activeView={activeView}
+      onViewChange={changeView}
       onOpen={(work) => {
         setSelectedUnitId(null);
         setSelectedWork(work);
@@ -120,12 +131,20 @@ export function App() {
       toast={toast}
     />
   );
+
+  function changeView(view: NavigationView) {
+    setActiveView(view);
+    const url = new URL(window.location.href);
+    if (view === "help") url.searchParams.set("view", "help");
+    else url.searchParams.delete("view");
+    window.history.replaceState(null, "", url);
+  }
 }
 
 function MainShell(props: {
   profile: UserProfile;
-  activeTab: NavigationTab;
-  onTabChange: (tab: NavigationTab) => void;
+  activeView: NavigationView;
+  onViewChange: (view: NavigationView) => void;
   onOpen: (work: WorkListItem) => void;
   toast: string | null;
 }) {
@@ -143,36 +162,48 @@ function MainShell(props: {
         clearProps: "transform,opacity",
       });
     },
-    { scope: appRef, dependencies: [props.activeTab] },
+    { scope: appRef, dependencies: [props.activeView] },
   );
 
   return (
     <div className="app-shell" ref={appRef}>
       <TopBar
         profile={props.profile}
-        activeTab={props.activeTab}
-        onProfile={() => props.onTabChange("profile")}
+        activeView={props.activeView}
+        onProfile={() => props.onViewChange("profile")}
       />
       <main className="page-content">
-        {props.activeTab === "home" && <HomeView onOpen={props.onOpen} />}
-        {props.activeTab === "explore" && <ExploreView onOpen={props.onOpen} />}
-        {props.activeTab === "favorites" && <FavoritesView onOpen={props.onOpen} />}
-        {props.activeTab === "profile" && (
-          <ProfileView profile={props.profile} onOpen={props.onOpen} />
+        {props.activeView === "home" && <HomeView onOpen={props.onOpen} />}
+        {props.activeView === "explore" && <ExploreView onOpen={props.onOpen} />}
+        {props.activeView === "favorites" && <FavoritesView onOpen={props.onOpen} />}
+        {props.activeView === "profile" && (
+          <ProfileView
+            profile={props.profile}
+            onOpen={props.onOpen}
+            onHelp={() => props.onViewChange("help")}
+          />
         )}
+        {props.activeView === "help" && <UserGuide onBack={() => props.onViewChange("profile")} />}
       </main>
-      <BottomNavigation active={props.activeTab} onChange={props.onTabChange} />
+      {props.activeView !== "help" && (
+        <BottomNavigation active={props.activeView} onChange={props.onViewChange} />
+      )}
       {props.toast && <Toast message={props.toast} />}
     </div>
   );
 }
 
-function TopBar(props: { profile: UserProfile; activeTab: NavigationTab; onProfile: () => void }) {
-  const labels: Record<NavigationTab, string> = {
+function TopBar(props: {
+  profile: UserProfile;
+  activeView: NavigationView;
+  onProfile: () => void;
+}) {
+  const labels: Record<NavigationView, string> = {
     home: "为你精选",
     explore: "发现内容",
     favorites: "我的收藏",
     profile: "个人中心",
+    help: "使用说明",
   };
   return (
     <header className="top-bar view-enter">
@@ -180,7 +211,7 @@ function TopBar(props: { profile: UserProfile; activeTab: NavigationTab; onProfi
         <span className="brand-kicker">FILM LIBRARY</span>
         <strong className="brand">片库</strong>
       </div>
-      <span className="top-context">{labels[props.activeTab]}</span>
+      <span className="top-context">{labels[props.activeView]}</span>
       <button className="avatar" type="button" onClick={props.onProfile} aria-label="个人中心">
         {avatarLetter(props.profile.displayName)}
       </button>
@@ -471,7 +502,11 @@ function FavoritesView(props: { onOpen: (work: WorkListItem) => void }) {
   );
 }
 
-function ProfileView(props: { profile: UserProfile; onOpen: (work: WorkListItem) => void }) {
+function ProfileView(props: {
+  profile: UserProfile;
+  onOpen: (work: WorkListItem) => void;
+  onHelp: () => void;
+}) {
   const history = useQuery({ queryKey: ["history"], queryFn: () => miniAppApi.listHistory() });
   const recentDeliveries = useQuery({
     queryKey: ["recent-deliveries"],
@@ -595,6 +630,14 @@ function ProfileView(props: { profile: UserProfile; onOpen: (work: WorkListItem)
           />
         )}
       </ContentSection>
+      <button className="help-entry view-enter" type="button" onClick={props.onHelp}>
+        <CircleHelp size={19} />
+        <span>
+          <strong>使用说明</strong>
+          <small>浏览、阅读、视频播放与会员权限</small>
+        </span>
+        <ChevronRight size={18} />
+      </button>
       <div className="account-note view-enter">
         <Bookmark size={18} />
         <span>
@@ -602,6 +645,77 @@ function ProfileView(props: { profile: UserProfile; onOpen: (work: WorkListItem)
           <small>ID {props.profile.telegramUserId}</small>
         </span>
       </div>
+    </div>
+  );
+}
+
+function UserGuide(props: { onBack: () => void }) {
+  const steps = [
+    {
+      icon: Home,
+      title: "浏览与查找",
+      detail:
+        "首页查看推荐、排行和最近更新；在分类页按影视、漫画、图集、写真筛选，也可搜索片名、别名、地区或标签。",
+    },
+    {
+      icon: Images,
+      title: "查看图片与漫画",
+      detail:
+        "进入作品后选择已发布目录。图集和写真支持滑动、缩放及缩略图定位；漫画支持连续滚动或单页阅读，位置会自动保存。",
+    },
+    {
+      icon: MessageCircle,
+      title: "观看视频",
+      detail:
+        "在影视或写真花絮中选择视频并请求发送，然后返回 Bot 私聊，使用 Telegram 原生播放器观看。已发送消息不会自动删除。",
+    },
+    {
+      icon: Heart,
+      title: "收藏与记录",
+      detail:
+        "作品详情中的心形按钮用于收藏。“我的”页面可查看最近发送和阅读记录，并继续打开对应作品。",
+    },
+    {
+      icon: LockKeyhole,
+      title: "会员权限",
+      detail:
+        "普通用户可查看会员作品的基础资料、公开封面和会员标识，但不能访问会员目录或文件；有效会员可浏览全部已发布内容。",
+    },
+  ];
+
+  return (
+    <div className="guide-view">
+      <header className="guide-heading view-enter">
+        <button type="button" onClick={props.onBack} aria-label="返回个人中心" title="返回">
+          <ArrowLeft size={20} />
+        </button>
+        <div>
+          <span>USER GUIDE</span>
+          <h1>使用说明</h1>
+          <p>在 Mini App 中浏览，在 Telegram 私聊中观看视频。</p>
+        </div>
+      </header>
+      <div className="guide-steps">
+        {steps.map(({ icon: Icon, title, detail }, index) => (
+          <section className="guide-step view-enter" key={title}>
+            <span className="guide-index">{String(index + 1).padStart(2, "0")}</span>
+            <Icon size={20} />
+            <div>
+              <h2>{title}</h2>
+              <p>{detail}</p>
+            </div>
+          </section>
+        ))}
+      </div>
+      <section className="guide-troubleshooting view-enter">
+        <span>遇到问题</span>
+        <h2>重新连接与发送检查</h2>
+        <p>
+          提示未启动 Bot 时，先在 Bot 私聊发送
+          /start；视频发送失败可在“我的”的最近发送中查看状态并重试；页面异常时关闭 Mini App
+          后重新打开。
+        </p>
+      </section>
     </div>
   );
 }
@@ -669,7 +783,7 @@ function ContentSection(props: {
 
 function BottomNavigation(props: {
   active: NavigationTab;
-  onChange: (tab: NavigationTab) => void;
+  onChange: (tab: NavigationView) => void;
 }) {
   const items: Array<{ value: NavigationTab; label: string; icon: ReactNode }> = [
     { value: "home", label: "首页", icon: <Home size={20} /> },

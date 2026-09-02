@@ -49,6 +49,13 @@ pnpm test
 pnpm build
 ```
 
+## 项目文档
+
+- [用户及管理员操作说明](docs/operation-guide.md)
+- [产品需求文档](docs/requirements.md)
+- [技术开发文档](docs/technical-development.md)
+- [验证记录](docs/verification-record.md)
+
 ## 部署
 
 生产与 Staging 使用同一拓扑：

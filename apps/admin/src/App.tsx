@@ -4,6 +4,7 @@ import {
   Archive,
   CircleAlert,
   CircleCheck,
+  CircleHelp,
   LayoutDashboard,
   Library,
   LoaderCircle,
@@ -31,7 +32,7 @@ import {
 } from "./api.js";
 import { IngestionDrawer, WorkEditor } from "./editors.js";
 
-type Page = "概览" | "作品" | "待入库" | "用户与会员" | "审计日志" | "系统设置";
+type Page = "概览" | "作品" | "待入库" | "用户与会员" | "审计日志" | "系统设置" | "操作说明";
 type StatusFilter = "all" | PublicationStatus;
 
 const navigation: Array<{ label: Page; icon: typeof LayoutDashboard }> = [
@@ -41,6 +42,7 @@ const navigation: Array<{ label: Page; icon: typeof LayoutDashboard }> = [
   { label: "用户与会员", icon: Users },
   { label: "审计日志", icon: ShieldCheck },
   { label: "系统设置", icon: Settings },
+  { label: "操作说明", icon: CircleHelp },
 ];
 
 export const workTypeLabels: Record<WorkType, string> = {
@@ -171,6 +173,7 @@ export function App() {
         {activePage === "系统设置" && settings && (
           <SettingsPage settings={settings} onToggle={() => void handleMembershipSetting()} />
         )}
+        {activePage === "操作说明" && <GuidePage />}
       </>
     );
   }
@@ -725,6 +728,118 @@ function SettingsPage({ settings, onToggle }: { settings: SystemSettings; onTogg
       >
         <span className="environment-label">{settings.environment ?? "configured"}</span>
       </SettingsBand>
+    </div>
+  );
+}
+
+function GuidePage() {
+  const workflow = [
+    {
+      title: "建立作品草稿",
+      detail:
+        "进入“作品”并点击“新建作品”，填写名称、主类型和访问级别。地区、年份、演员、作者等资料均为选填，留空会在用户端显示未知。",
+    },
+    {
+      title: "创建目录和内容单元",
+      detail:
+        "保存草稿后进入作品编排，先建立与主类型匹配的目录，再添加电影、剧集、漫画章节、图片集、写真集或花絮视频等内容单元。",
+    },
+    {
+      title: "上传至私有存储频道",
+      detail:
+        "将媒体直接发送到已配置的 Telegram 私有存储频道。视频应预先采用 Telegram 兼容格式；图片正文应准备浏览版，列表需要时同时准备缩略图。",
+    },
+    {
+      title: "在待入库中关联",
+      detail:
+        "打开“待入库”，选择目标作品或内容单元并设置媒体角色、版本、展示范围和排序。图片的 source、browse、thumbnail 版本使用同一逻辑资源 ID。",
+    },
+    {
+      title: "核验并设为可用",
+      detail:
+        "返回作品编排核对文件名、尺寸、类型、目标单元和顺序。确认正确后，将媒体状态从“待确认”设为“可用”。",
+    },
+    {
+      title: "发布目录和单元",
+      detail:
+        "将需要展示的目录和内容单元分别设为“发布”。未发布、已下架或无可用媒体的内容不会出现在用户目录中。",
+    },
+    {
+      title: "审核并发布作品",
+      detail:
+        "确认作品拥有独立公开封面、已发布目录、已发布内容单元和可用媒体后，点击“审核并发布”。系统提示问题时，按路径修正后再次提交。",
+    },
+  ];
+
+  return (
+    <div className="admin-guide page-stack">
+      <PageIntro
+        title="内容入库与发布流程"
+        description="本项目采用单管理员审核。按下列顺序操作，可避免媒体已上传但用户端目录不可见。"
+        summary="7 个步骤"
+      />
+      <section className="guide-workflow" aria-label="发布流程">
+        {workflow.map((item, index) => (
+          <div className="guide-workflow-row" key={item.title}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <div>
+              <h2>{item.title}</h2>
+              <p>{item.detail}</p>
+            </div>
+          </div>
+        ))}
+      </section>
+
+      <section className="guide-reference">
+        <div>
+          <span>内容规则</span>
+          <h2>目录必须与作品主类型一致</h2>
+        </div>
+        <dl>
+          <div>
+            <dt>影视</dt>
+            <dd>可包含播放、剧集和剧照；同一视频有多个可用版本时，系统默认发送最高分辨率版本。</dd>
+          </div>
+          <div>
+            <dt>漫画</dt>
+            <dd>仅创建漫画目录和漫画章节，不关联视频内容。</dd>
+          </div>
+          <div>
+            <dt>图集</dt>
+            <dd>使用图片集，按排序序号控制浏览顺序。</dd>
+          </div>
+          <div>
+            <dt>写真</dt>
+            <dd>可包含写真集、补充图集和拍摄花絮视频。</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="guide-reference">
+        <div>
+          <span>图片与封面</span>
+          <h2>公开预览和受保护正文分开管理</h2>
+        </div>
+        <ul>
+          <li>公开封面必须是独立的 browse 或 thumbnail 图片，并设为公开预览范围。</li>
+          <li>正文图片设为受保护内容；用户端只读取合规浏览版，不提供图片源文件下载。</li>
+          <li>同一图片的 source、browse、thumbnail 使用同一逻辑资源 ID，以便系统识别版本关系。</li>
+          <li>图片入库后先核验元数据，再设为可用；错误文件不要进入发布链路。</li>
+        </ul>
+      </section>
+
+      <section className="guide-reference">
+        <div>
+          <span>权限与运维</span>
+          <h2>会员、审计和日常检查</h2>
+        </div>
+        <ul>
+          <li>在“用户与会员”中设置会员状态和有效期；到期后用户不能发起新的会员内容访问。</li>
+          <li>系统设置中的会员总开关关闭后，全部已发布内容按公开权限计算。</li>
+          <li>普通用户仍可看到会员作品的安全基础资料和会员标识，但不能访问会员文件。</li>
+          <li>发布、下架、会员变更和设置修改均应在“审计日志”中留下记录与请求追踪号。</li>
+        </ul>
+      </section>
     </div>
   );
 }

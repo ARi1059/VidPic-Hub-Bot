@@ -636,6 +636,7 @@ img {
 }
 
 .membership-row span,
+.help-entry span,
 .account-note span,
 .history-list button > span {
   min-width: 0;
@@ -645,6 +646,7 @@ img {
 }
 
 .membership-row small,
+.help-entry small,
 .account-note small,
 .history-list small {
   color: var(--muted);
@@ -708,6 +710,116 @@ img {
 
 .account-note strong {
   color: var(--text);
+}
+
+.help-entry {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 26px;
+  padding: 15px 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--accent);
+  text-align: left;
+}
+
+.help-entry strong {
+  color: var(--text);
+}
+
+.guide-view {
+  padding-bottom: calc(22px + env(safe-area-inset-bottom));
+}
+
+.guide-heading {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 13px;
+  align-items: start;
+  padding: 18px 0 25px;
+  border-bottom: 1px solid var(--line);
+}
+
+.guide-heading > button {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.guide-heading span,
+.guide-troubleshooting > span {
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.guide-heading h1 {
+  margin: 4px 0 5px;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 25px;
+}
+
+.guide-heading p,
+.guide-step p,
+.guide-troubleshooting p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.guide-steps {
+  border-bottom: 1px solid var(--line);
+}
+
+.guide-step {
+  display: grid;
+  grid-template-columns: 28px 24px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 19px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.guide-step:last-child {
+  border-bottom: 0;
+}
+
+.guide-step > svg {
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.guide-index {
+  color: var(--gold);
+  font-family: Georgia, serif;
+  font-size: 13px;
+  line-height: 22px;
+}
+
+.guide-step h2,
+.guide-troubleshooting h2 {
+  margin: 0 0 5px;
+  font-size: 14px;
+}
+
+.guide-troubleshooting {
+  padding: 22px 0 5px;
+}
+
+.guide-troubleshooting h2 {
+  margin-top: 5px;
 }
 
 .empty-state,
