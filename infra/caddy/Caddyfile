@@ -1,0 +1,42 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$MINI_APP_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv/mini-app
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+{$ADMIN_APP_DOMAIN} {
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	root * /srv/admin
+	try_files {path} /index.html
+	file_server
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:3000
+}

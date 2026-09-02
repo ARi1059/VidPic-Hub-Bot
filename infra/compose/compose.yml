@@ -1,0 +1,107 @@
+name: film-bot
+
+x-app-environment: &app-environment
+  NODE_ENV: ${NODE_ENV:-production}
+  DATABASE_URL: postgres://film_bot:${POSTGRES_PASSWORD}@postgres:5432/film_bot
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  BOT_TOKEN: ${BOT_TOKEN}
+  BOT_USERNAME: ${BOT_USERNAME}
+  ADMIN_TELEGRAM_USER_ID: ${ADMIN_TELEGRAM_USER_ID:-}
+  TELEGRAM_STORAGE_CHAT_ID: ${TELEGRAM_STORAGE_CHAT_ID}
+  TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+  SESSION_SECRET: ${SESSION_SECRET}
+  MEDIA_SIGNING_SECRET: ${MEDIA_SIGNING_SECRET}
+  TELEGRAM_INIT_DATA_TTL_SECONDS: ${TELEGRAM_INIT_DATA_TTL_SECONDS:-900}
+  BOT_USE_WEBHOOK: ${BOT_USE_WEBHOOK:-true}
+  MINI_APP_URL: https://${MINI_APP_DOMAIN}
+  ADMIN_APP_URL: https://${ADMIN_APP_DOMAIN}
+  PUBLIC_API_URL: https://${API_DOMAIN}
+  API_PORT: 3000
+  BOT_WORKER_PORT: 3001
+
+services:
+  caddy:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      target: web
+    restart: unless-stopped
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL}
+      MINI_APP_DOMAIN: ${MINI_APP_DOMAIN}
+      ADMIN_APP_DOMAIN: ${ADMIN_APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      target: api
+    restart: unless-stopped
+    environment: *app-environment
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  bot-worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      target: bot-worker
+    restart: unless-stopped
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: film_bot
+      POSTGRES_USER: film_bot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U film_bot -d film_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis_data:/data
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  redis_data:

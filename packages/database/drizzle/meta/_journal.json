@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788298313122,
+      "tag": "0000_broad_silvermane",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788298730142,
+      "tag": "0001_melted_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788331914273,
+      "tag": "0002_colorful_human_torch",
+      "breakpoints": true
+    }
+  ]
+}

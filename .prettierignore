@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+pnpm-lock.yaml
+packages/database/drizzle/meta
+docs/archive
+docs/documentation.patch
+docs/requirements.md
+docs/technical-development.md
+docs/verification-record.md
