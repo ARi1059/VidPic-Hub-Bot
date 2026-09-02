@@ -436,6 +436,7 @@ class HttpAdminApi implements AdminApi {
   private async request<T>(
     path: string,
     options: { method?: "GET" | "POST" | "PATCH"; body?: unknown } = {},
+    retryOnUnauthorized = true,
   ): Promise<T> {
     const token = await this.ensureToken();
     const response = await fetch(`${this.baseUrl}${path}`, {
@@ -449,13 +450,19 @@ class HttpAdminApi implements AdminApi {
     const payload = (await response.json()) as ApiEnvelope<T> | ApiErrorPayload;
     if (!response.ok || !("data" in payload)) {
       if (response.status === 401) {
-        sessionStorage.removeItem(this.tokenKey);
-        sessionStorage.removeItem(this.expiryKey);
-        sessionStorage.removeItem(this.profileKey);
+        this.clearSession();
+        if (retryOnUnauthorized) return this.request<T>(path, options, false);
       }
       throw apiError(payload);
     }
     return payload.data;
+  }
+
+  private clearSession() {
+    this.profile = null;
+    sessionStorage.removeItem(this.tokenKey);
+    sessionStorage.removeItem(this.expiryKey);
+    sessionStorage.removeItem(this.profileKey);
   }
 }
 

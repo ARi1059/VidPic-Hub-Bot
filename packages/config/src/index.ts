@@ -17,6 +17,7 @@ const serverEnvironmentSchema = z.object({
   SESSION_SECRET: z.string().min(32),
   MEDIA_SIGNING_SECRET: z.string().min(32),
   TELEGRAM_INIT_DATA_TTL_SECONDS: z.coerce.number().int().positive().max(3600).default(900),
+  ADMIN_SESSION_TTL_SECONDS: z.coerce.number().int().min(600).max(86_400).default(7200),
   BOT_USERNAME: z.string().regex(/^[A-Za-z0-9_]{5,32}$/),
   MINI_APP_URL: z.string().url(),
   ADMIN_APP_URL: z.string().url(),

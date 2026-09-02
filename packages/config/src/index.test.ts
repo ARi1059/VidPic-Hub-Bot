@@ -23,6 +23,7 @@ describe("parseServerEnvironment", () => {
     expect(configuration.NODE_ENV).toBe("development");
     expect(configuration.API_PORT).toBe(3000);
     expect(configuration.BOT_USE_WEBHOOK).toBe(false);
+    expect(configuration.ADMIN_SESSION_TTL_SECONDS).toBe(7200);
   });
 
   it("rejects short secrets", () => {
