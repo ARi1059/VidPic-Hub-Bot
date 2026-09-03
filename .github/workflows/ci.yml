@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.0
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker compose --env-file .env.example -f infra/compose/compose.yml config --quiet
       - run: docker build --target api -t film-bot-api:ci -f infra/docker/Dockerfile .
       - run: docker build --target bot-worker -t film-bot-worker:ci -f infra/docker/Dockerfile .
