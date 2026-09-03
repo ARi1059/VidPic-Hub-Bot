@@ -1,4 +1,4 @@
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 
 import {
   BadGatewayException,
@@ -84,7 +84,7 @@ export class MediaController {
         ),
       )
       .limit(1);
-    if (!asset || (asset.fileSize !== null && asset.fileSize > 10_000_000)) {
+    if (!asset || (asset.fileSize !== null && asset.fileSize > this.environment.MEDIA_MAX_BYTES)) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "公开封面不存在" });
     }
 
@@ -95,8 +95,17 @@ export class MediaController {
     asset: { fileId: string; mimeType: string | null; fileSize: number | null },
     reply: FastifyReply,
   ): Promise<void> {
-    const metadataResponse = await fetch(
+    if (
+      !isAllowedImage(asset.mimeType) ||
+      (asset.fileSize ?? 0) > this.environment.MEDIA_MAX_BYTES
+    ) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "图片不存在" });
+    }
+
+    const metadataResponse = await fetchTelegram(
       `https://api.telegram.org/bot${this.environment.BOT_TOKEN}/getFile?file_id=${encodeURIComponent(asset.fileId)}`,
+      this.environment.MEDIA_UPSTREAM_TIMEOUT_MS,
+      "Telegram 图片地址获取失败",
     );
     if (!metadataResponse.ok) {
       throw new BadGatewayException({
@@ -113,10 +122,26 @@ export class MediaController {
       });
     }
 
-    const mediaResponse = await fetch(
-      `https://api.telegram.org/file/bot${this.environment.BOT_TOKEN}/${filePath}`,
+    const mediaController = new AbortController();
+    const mediaTimeout = setTimeout(
+      () => mediaController.abort(),
+      this.environment.MEDIA_UPSTREAM_TIMEOUT_MS,
     );
+    let mediaResponse: Response;
+    try {
+      mediaResponse = await fetch(
+        `https://api.telegram.org/file/bot${this.environment.BOT_TOKEN}/${filePath}`,
+        { signal: mediaController.signal },
+      );
+    } catch {
+      clearTimeout(mediaTimeout);
+      throw new BadGatewayException({
+        code: "MEDIA_UNAVAILABLE",
+        message: "Telegram 图片读取失败",
+      });
+    }
     if (!mediaResponse.ok || !mediaResponse.body) {
+      clearTimeout(mediaTimeout);
       throw new BadGatewayException({
         code: "MEDIA_UNAVAILABLE",
         message: "Telegram 图片读取失败",
@@ -124,7 +149,42 @@ export class MediaController {
     }
 
     const contentLength = mediaResponse.headers.get("content-length");
-    if (contentLength) reply.header("content-length", contentLength);
+    const parsedContentLength = contentLength === null ? null : Number(contentLength);
+    if (
+      parsedContentLength !== null &&
+      (!Number.isSafeInteger(parsedContentLength) ||
+        parsedContentLength < 0 ||
+        parsedContentLength > this.environment.MEDIA_MAX_BYTES)
+    ) {
+      clearTimeout(mediaTimeout);
+      mediaController.abort();
+      throw new BadGatewayException({
+        code: "MEDIA_UNAVAILABLE",
+        message: "图片超过浏览限制",
+      });
+    }
+    if (parsedContentLength !== null) reply.header("content-length", String(parsedContentLength));
+    let receivedBytes = 0;
+    const limitedStream = Readable.fromWeb(mediaResponse.body).pipe(
+      new Transform({
+        transform: (chunk: Buffer | string, _encoding, callback) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          receivedBytes += buffer.length;
+          if (receivedBytes > this.environment.MEDIA_MAX_BYTES) {
+            mediaController.abort();
+            callback(new Error("Telegram image exceeds configured limit"));
+            return;
+          }
+          callback(null, buffer);
+        },
+      }),
+    );
+    const cleanup = () => {
+      clearTimeout(mediaTimeout);
+      mediaController.abort();
+    };
+    limitedStream.once("close", cleanup);
+    limitedStream.once("error", cleanup);
     reply
       .header(
         "content-type",
@@ -133,6 +193,24 @@ export class MediaController {
       .header("cache-control", "private, max-age=120")
       .header("content-disposition", "inline")
       .header("x-content-type-options", "nosniff")
-      .send(Readable.fromWeb(mediaResponse.body));
+      .send(limitedStream);
+  }
+}
+
+function isAllowedImage(mimeType: string | null): boolean {
+  return new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]).has(
+    mimeType?.toLowerCase() ?? "",
+  );
+}
+
+async function fetchTelegram(url: string, timeoutMs: number, message: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch {
+    throw new BadGatewayException({ code: "MEDIA_UNAVAILABLE", message });
+  } finally {
+    clearTimeout(timeout);
   }
 }

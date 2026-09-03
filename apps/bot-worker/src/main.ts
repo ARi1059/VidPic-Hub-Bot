@@ -10,6 +10,7 @@ import {
   users,
 } from "@film-bot/database";
 import { and, eq, gt, inArray } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import Fastify from "fastify";
 import { Bot, InlineKeyboard, webhookCallback } from "grammy";
 import { Redis } from "ioredis";
@@ -21,6 +22,7 @@ const { db, close: closeDatabase } = createDatabase(environment.DATABASE_URL);
 const redis = new Redis(environment.REDIS_URL, { maxRetriesPerRequest: null });
 const bot = new Bot(environment.BOT_TOKEN);
 const server = Fastify({ logger: true });
+let transportReady = false;
 
 bot.command("start", async (context) => {
   if (!context.from) return;
@@ -169,20 +171,30 @@ bot.command("admin", async (context) => {
 
 bot.catch(({ error }) => server.log.error(error, "Telegram update failed"));
 
-void registerBotCommands();
-
 server.get("/health", async () => ({ status: "ok", service: "bot-worker" }));
+
+server.get("/health/ready", async (_request, reply) => {
+  const [database, redisStatus] = await Promise.all([
+    dependencyCheck(() => db.execute(sql`select 1`)),
+    dependencyCheck(() => redis.ping()),
+  ]);
+  const checks = { database, redis: redisStatus, transport: transportReady ? "ok" : "failed" };
+  if (Object.values(checks).some((status) => status !== "ok")) {
+    return reply.status(503).send({
+      status: "not_ready",
+      service: "bot-worker",
+      checks,
+      timestamp: new Date().toISOString(),
+    });
+  }
+  return { status: "ok", service: "bot-worker", checks, timestamp: new Date().toISOString() };
+});
 
 if (environment.BOT_USE_WEBHOOK) {
   server.post(
     "/telegram/webhook",
     webhookCallback(bot, "fastify", { secretToken: environment.TELEGRAM_WEBHOOK_SECRET }),
   );
-} else {
-  void bot.start({
-    onStart: (information) =>
-      server.log.info({ username: information.username }, "Bot polling started"),
-  });
 }
 
 const deliveryWorker = createDeliveryWorker(db, bot, redis, environment.MINI_APP_URL);
@@ -190,14 +202,32 @@ deliveryWorker.on("failed", (job, error) => {
   server.log.error({ jobId: job?.id, error }, "Media delivery job failed");
 });
 
+await registerBotCommands();
+await configureBotTransport();
+
 await server.listen({ port: environment.BOT_WORKER_PORT, host: "0.0.0.0" });
 
-const shutdown = async () => {
-  await deliveryWorker.close();
-  await bot.stop();
-  await redis.quit();
-  await closeDatabase();
-  await server.close();
+if (!environment.BOT_USE_WEBHOOK) {
+  void bot.start({
+    onStart: (information) => {
+      transportReady = true;
+      server.log.info({ username: information.username }, "Bot polling started");
+    },
+  });
+}
+
+let shutdownPromise: Promise<void> | undefined;
+const shutdown = () => {
+  if (shutdownPromise) return shutdownPromise;
+  transportReady = false;
+  shutdownPromise = (async () => {
+    if (!environment.BOT_USE_WEBHOOK) await bot.stop();
+    await server.close();
+    await deliveryWorker.close();
+    await redis.quit();
+    await closeDatabase();
+  })();
+  return shutdownPromise;
 };
 
 process.once("SIGINT", () => void shutdown());
@@ -309,6 +339,43 @@ function miniAppHelpUrl() {
   const url = new URL(environment.MINI_APP_URL);
   url.searchParams.set("view", "help");
   return url.toString();
+}
+
+async function configureBotTransport(): Promise<void> {
+  if (environment.BOT_USE_WEBHOOK) {
+    const webhookUrl = new URL("/telegram/webhook", environment.PUBLIC_API_URL).toString();
+    await bot.api.setWebhook(webhookUrl, {
+      secret_token: environment.TELEGRAM_WEBHOOK_SECRET,
+      allowed_updates: ["message", "callback_query", "channel_post"],
+    });
+    const webhook = await bot.api.getWebhookInfo();
+    if (webhook.url !== webhookUrl) {
+      throw new Error(`Telegram webhook verification failed: expected ${webhookUrl}`);
+    }
+    transportReady = true;
+    server.log.info({ webhookUrl }, "Bot webhook registered");
+    return;
+  }
+
+  await bot.api.deleteWebhook({ drop_pending_updates: false });
+  server.log.info("Telegram webhook cleared before polling");
+}
+
+async function dependencyCheck(check: () => Promise<unknown>): Promise<"ok" | "failed"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      check(),
+      new Promise<never>(
+        (_, reject) => (timer = setTimeout(() => reject(new Error("dependency timeout")), 1500)),
+      ),
+    ]);
+    return "ok";
+  } catch {
+    return "failed";
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 const userHelpText = `用户操作说明

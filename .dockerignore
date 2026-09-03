@@ -7,3 +7,7 @@ node_modules
 coverage
 *.log
 .DS_Store
+backups
+**/backups
+*.dump
+*.dump.sha256

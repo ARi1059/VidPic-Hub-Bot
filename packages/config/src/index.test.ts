@@ -23,6 +23,7 @@ describe("parseServerEnvironment", () => {
     expect(configuration.NODE_ENV).toBe("development");
     expect(configuration.API_PORT).toBe(3000);
     expect(configuration.BOT_USE_WEBHOOK).toBe(false);
+    expect(configuration.USER_SESSION_TTL_SECONDS).toBe(3600);
     expect(configuration.ADMIN_SESSION_TTL_SECONDS).toBe(7200);
   });
 
@@ -30,5 +31,22 @@ describe("parseServerEnvironment", () => {
     expect(() => parseServerEnvironment({ ...validEnvironment, SESSION_SECRET: "short" })).toThrow(
       "Invalid server environment",
     );
+  });
+
+  it("requires HTTPS and webhook transport in production", () => {
+    expect(() => parseServerEnvironment({ ...validEnvironment, NODE_ENV: "production" })).toThrow(
+      "生产环境必须使用 HTTPS",
+    );
+
+    const configuration = parseServerEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      MINI_APP_URL: "https://mini.example.com",
+      ADMIN_APP_URL: "https://admin.example.com",
+      PUBLIC_API_URL: "https://api.example.com",
+      BOT_USE_WEBHOOK: "true",
+    });
+    expect(configuration.BOT_USE_WEBHOOK).toBe(true);
+    expect(configuration.MEDIA_MAX_BYTES).toBe(10_000_000);
   });
 });

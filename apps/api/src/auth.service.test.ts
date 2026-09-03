@@ -71,4 +71,30 @@ describe("AuthService", () => {
     expect((verified.payload.exp ?? 0) - (verified.payload.iat ?? 0)).toBe(7200);
     expect(result.user.admin).toBe(true);
   });
+
+  it("uses the configured lifetime for a user session", async () => {
+    const environment = parseServerEnvironment({
+      DATABASE_URL: "postgres://film_bot:film_bot@localhost:5432/film_bot",
+      REDIS_URL: "redis://localhost:6379",
+      BOT_TOKEN: botToken,
+      TELEGRAM_STORAGE_CHAT_ID: "-1001234567890",
+      TELEGRAM_WEBHOOK_SECRET: "0123456789abcdef",
+      SESSION_SECRET: sessionSecret,
+      MEDIA_SIGNING_SECRET: "abcdef0123456789abcdef0123456789",
+      USER_SESSION_TTL_SECONDS: "3600",
+      BOT_USERNAME: "film_test_bot",
+      MINI_APP_URL: "http://localhost:5173",
+      ADMIN_APP_URL: "http://localhost:5174",
+      PUBLIC_API_URL: "http://localhost:3000",
+    });
+    const service = new AuthService(environment, databaseStub());
+
+    const result = await service.authenticate(validInitData(), "user");
+    const verified = await jwtVerify(result.accessToken, new TextEncoder().encode(sessionSecret), {
+      issuer: "film-bot-api",
+      audience: "user",
+    });
+
+    expect((verified.payload.exp ?? 0) - (verified.payload.iat ?? 0)).toBe(3600);
+  });
 });

@@ -12,6 +12,7 @@ export const apiErrorCodeSchema = z.enum([
   "BOT_BLOCKED",
   "MEMBERSHIP_REQUIRED",
   "MEDIA_UNAVAILABLE",
+  "SERVICE_NOT_READY",
   "RATE_LIMITED",
   "CONFLICT",
   "INTERNAL_ERROR",

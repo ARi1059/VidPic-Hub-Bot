@@ -5,6 +5,7 @@ import {
   type ArgumentsHost,
   HttpException,
   HttpStatus,
+  Logger,
   type ExceptionFilter,
 } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -21,6 +22,8 @@ function isErrorPayload(value: unknown): value is ErrorPayload {
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(ApiExceptionFilter.name);
+
   public catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
     const request = http.getRequest<FastifyRequest>();
@@ -33,6 +36,16 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const rawPayload = exception instanceof HttpException ? exception.getResponse() : undefined;
     const payload = isErrorPayload(rawPayload) ? rawPayload : {};
     const defaultMessage = status >= 500 ? "服务暂时不可用" : "请求处理失败";
+
+    if (status >= 500) {
+      this.logger.error({
+        requestId,
+        method: request.method,
+        path: request.url.split("?", 1)[0],
+        status,
+        error: exception instanceof Error ? exception.name : "UnknownError",
+      });
+    }
 
     response
       .status(status)

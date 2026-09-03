@@ -67,7 +67,10 @@ export class AuthService {
       throw new ForbiddenException({ code: "FORBIDDEN", message: "不在管理员白名单中" });
     }
 
-    const lifetimeSeconds = audience === "admin" ? this.environment.ADMIN_SESSION_TTL_SECONDS : 900;
+    const lifetimeSeconds =
+      audience === "admin"
+        ? this.environment.ADMIN_SESSION_TTL_SECONDS
+        : this.environment.USER_SESSION_TTL_SECONDS;
     const expiresAt = new Date(Date.now() + lifetimeSeconds * 1000);
     const accessToken = await new SignJWT({
       telegramUserId: telegramUserId.toString(),

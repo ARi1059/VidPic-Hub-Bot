@@ -31,12 +31,42 @@
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		-Server
 	}
-	root * /srv/admin
-	try_files {path} /index.html
-	file_server
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle_path /admin/* {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+
+	@adminRoot path /
+	redir @adminRoot /admin/ 308
+
+	handle {
+		respond "not found" 404
+	}
 }
 
 {$API_DOMAIN} {
 	encode zstd gzip
-	reverse_proxy api:3000
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	handle /telegram/webhook* {
+		reverse_proxy bot-worker:3001
+	}
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		respond "not found" 404
+	}
 }

@@ -46,7 +46,10 @@ export class DeliveryService implements OnApplicationShutdown {
     @Inject(DATABASE_CONNECTION) private readonly database: Database,
     @Inject(SERVER_ENVIRONMENT) private readonly environment: ServerEnvironment,
   ) {
-    this.redis = new Redis(this.environment.REDIS_URL, { maxRetriesPerRequest: null });
+    this.redis = new Redis(this.environment.REDIS_URL, {
+      maxRetriesPerRequest: null,
+      commandTimeout: this.environment.REDIS_COMMAND_TIMEOUT_MS,
+    });
     this.queue = new Queue<MediaDeliveryJob>(mediaDeliveryQueueName, { connection: this.redis });
   }
 
