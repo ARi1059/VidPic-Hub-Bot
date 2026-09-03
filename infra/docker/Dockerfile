@@ -28,7 +28,7 @@ RUN addgroup -S filmbot && adduser -S -G filmbot filmbot
 USER filmbot
 CMD ["pnpm", "--filter", "@film-bot/database", "db:migrate"]
 
-FROM caddy:2.10-alpine AS web
+FROM caddy:2.11-alpine AS web
 COPY infra/caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=builder /app/apps/mini-app/dist /srv/mini-app
 COPY --from=builder /app/apps/admin/dist /srv/admin
