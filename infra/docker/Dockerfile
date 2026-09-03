@@ -1,4 +1,4 @@
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 RUN npm install --global pnpm@9.15.0
 WORKDIR /app
@@ -6,7 +6,7 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
-FROM node:22-alpine AS api
+FROM node:26-alpine AS api
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app /app
@@ -14,7 +14,7 @@ RUN addgroup -S filmbot && adduser -S -G filmbot filmbot && chown -R filmbot:fil
 USER filmbot
 CMD ["node", "apps/api/dist/main.js"]
 
-FROM node:22-alpine AS bot-worker
+FROM node:26-alpine AS bot-worker
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=builder /app /app
