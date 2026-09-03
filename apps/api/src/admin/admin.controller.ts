@@ -19,6 +19,7 @@ import {
   createWorkRequestSchema,
   ingestionAttachRequestSchema,
   membershipSettingRequestSchema,
+  promoteMediaCoverRequestSchema,
   updateMediaAssetRequestSchema,
   updateSectionRequestSchema,
   updateUnitRequestSchema,
@@ -172,6 +173,20 @@ export class AdminController {
         ...fields,
         ...(storageChatId ? { storageChatId: BigInt(storageChatId) } : {}),
       },
+      auditContext(request),
+    );
+  }
+
+  @Post("media-assets/:mediaId/promote-cover")
+  public promoteMediaCover(
+    @Req() request: FastifyRequest,
+    @Param("mediaId") mediaId: string,
+    @Body() body: unknown,
+  ) {
+    requirePermission(request, "content.write");
+    return this.admin.promoteMediaCover(
+      parse(idSchema, mediaId),
+      parse(promoteMediaCoverRequestSchema, body),
       auditContext(request),
     );
   }

@@ -122,3 +122,7 @@ export const ingestionAttachRequestSchema = z.object({
   logicalAssetId: z.string().uuid().nullable().optional(),
   ordinal: z.number().int().nonnegative().default(0),
 });
+
+export const promoteMediaCoverRequestSchema = z.object({
+  workId: z.string().uuid().optional(),
+});

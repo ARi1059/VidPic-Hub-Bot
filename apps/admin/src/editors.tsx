@@ -308,6 +308,14 @@ export function WorkEditor({
                       }
                     />
                   ))}
+                {bundle.assets.filter((asset) => !asset.unitId).length === 0 && (
+                  <div className="asset-empty cover-empty">
+                    <strong>尚无作品级媒体</strong>
+                    <span>
+                      请先在 Telegram 私有存储频道发送封面图片，再到“待入库”关联为作品级公开封面。
+                    </span>
+                  </div>
+                )}
                 {sectionFormOpen && (
                   <NewSectionForm
                     workType={bundle.work.type}
@@ -398,6 +406,12 @@ export function WorkEditor({
                                 void mutateBundle(
                                   () => adminApi.updateMedia(asset.id, { status: "available" }),
                                   "媒体已设为可用",
+                                )
+                              }
+                              onSetCover={(asset) =>
+                                void mutateBundle(
+                                  () => adminApi.promoteMediaCover(asset.id, bundle.work.id),
+                                  "公开封面已更新",
                                 )
                               }
                             />
@@ -807,11 +821,13 @@ function UnitRow({
   assets,
   onToggle,
   onAvailable,
+  onSetCover,
 }: {
   unit: ContentUnit;
   assets: MediaAsset[];
   onToggle(): void;
   onAvailable(asset: MediaAsset): void;
+  onSetCover(asset: MediaAsset): void;
 }) {
   return (
     <div className="unit-block">
@@ -829,7 +845,12 @@ function UnitRow({
         </button>
       </div>
       {assets.map((asset) => (
-        <AssetRow key={asset.id} asset={asset} onAvailable={() => onAvailable(asset)} />
+        <AssetRow
+          key={asset.id}
+          asset={asset}
+          onAvailable={() => onAvailable(asset)}
+          {...(canPromoteToCover(asset) ? { onSetCover: () => onSetCover(asset) } : {})}
+        />
       ))}
       {assets.length === 0 && <p className="asset-empty">尚未关联媒体</p>}
     </div>
@@ -868,6 +889,15 @@ function AssetRow({
         </button>
       )}
     </div>
+  );
+}
+
+function canPromoteToCover(asset: MediaAsset) {
+  return (
+    asset.type === "image" &&
+    (asset.variant === "browse" || asset.variant === "thumbnail") &&
+    asset.presentationScope === "public_preview" &&
+    asset.status === "available"
   );
 }
 

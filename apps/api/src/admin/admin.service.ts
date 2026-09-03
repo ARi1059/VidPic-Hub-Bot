@@ -260,6 +260,97 @@ export class AdminService {
     });
   }
 
+  public async promoteMediaCover(
+    mediaId: string,
+    input: { workId?: string | undefined },
+    audit: AuditContext,
+  ) {
+    return this.database.transaction(async (transaction) => {
+      const [source] = await transaction
+        .select({ asset: mediaAssets, unitWorkId: contentSections.workId })
+        .from(mediaAssets)
+        .leftJoin(contentUnits, eq(contentUnits.id, mediaAssets.unitId))
+        .leftJoin(contentSections, eq(contentSections.id, contentUnits.sectionId))
+        .where(eq(mediaAssets.id, mediaId))
+        .limit(1);
+      if (!source) throw new NotFoundException({ code: "NOT_FOUND", message: "媒体资源不存在" });
+
+      const workId = input.workId ?? source.asset.workId ?? source.unitWorkId;
+      if (!workId) {
+        throw new BadRequestException({ code: "VALIDATION_FAILED", message: "媒体未关联作品" });
+      }
+      if (
+        input.workId &&
+        ((source.asset.workId && source.asset.workId !== input.workId) ||
+          (source.unitWorkId && source.unitWorkId !== input.workId))
+      ) {
+        throw new BadRequestException({ code: "VALIDATION_FAILED", message: "媒体与作品不匹配" });
+      }
+      if (
+        source.asset.type !== "image" ||
+        !["browse", "thumbnail"].includes(source.asset.variant ?? "") ||
+        source.asset.presentationScope !== "public_preview" ||
+        source.asset.status !== "available"
+      ) {
+        throw new BadRequestException({
+          code: "VALIDATION_FAILED",
+          message: "只有可用的公开预览 browse 或 thumbnail 图片可以设为封面",
+        });
+      }
+
+      const [work] = await transaction
+        .select({ id: works.id })
+        .from(works)
+        .where(eq(works.id, workId))
+        .limit(1);
+      if (!work) throw new NotFoundException({ code: "NOT_FOUND", message: "作品不存在" });
+
+      const [cover] = await transaction
+        .insert(mediaAssets)
+        .values({
+          workId,
+          unitId: null,
+          type: "image",
+          role: "public_cover",
+          storageChatId: source.asset.storageChatId,
+          sourceMessageId: source.asset.sourceMessageId,
+          fileId: source.asset.fileId,
+          fileUniqueId: source.asset.fileUniqueId,
+          fileName: source.asset.fileName,
+          mimeType: source.asset.mimeType,
+          fileSize: source.asset.fileSize,
+          width: source.asset.width,
+          height: source.asset.height,
+          durationSeconds: null,
+          videoVersion: null,
+          pixelCount: source.asset.pixelCount,
+          isPrimary: true,
+          logicalAssetId: source.asset.logicalAssetId,
+          parentAssetId: source.asset.id,
+          variant: source.asset.variant,
+          presentationScope: "public_preview",
+          ordinal: 0,
+          status: "available",
+        })
+        .returning();
+      if (!cover) throw new Error("Public cover insert returned no row");
+
+      const [updated] = await transaction
+        .update(works)
+        .set({ publicCoverAssetId: cover.id, updatedAt: new Date() })
+        .where(eq(works.id, workId))
+        .returning();
+      if (!updated) throw new Error("Public cover work update returned no row");
+
+      await transaction
+        .insert(adminAuditLogs)
+        .values(
+          auditValues(audit, "media.promote_cover", "media_asset", cover.id, source.asset, cover),
+        );
+      return jsonSafe(cover);
+    });
+  }
+
   public async publishWork(workId: string, audit: AuditContext) {
     const snapshot = await this.publicationSnapshot(workId);
     const issues = validateWorkPublication(snapshot);

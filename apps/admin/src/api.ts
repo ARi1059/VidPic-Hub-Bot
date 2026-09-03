@@ -250,6 +250,7 @@ interface AdminApi {
     mediaId: string,
     input: { status?: MediaAsset["status"]; isPrimary?: boolean },
   ): Promise<MediaAsset>;
+  promoteMediaCover(mediaId: string, workId?: string): Promise<MediaAsset>;
   getSettings(): Promise<SystemSettings>;
   setMembershipEnabled(enabled: boolean): Promise<SystemSettings>;
   listUsers(): Promise<AdminUser[]>;
@@ -351,6 +352,13 @@ class HttpAdminApi implements AdminApi {
     return this.request<MediaAsset>(`/api/admin/media-assets/${mediaId}`, {
       method: "PATCH",
       body: input,
+    });
+  }
+
+  public promoteMediaCover(mediaId: string, workId?: string) {
+    return this.request<MediaAsset>(`/api/admin/media-assets/${mediaId}/promote-cover`, {
+      method: "POST",
+      body: workId ? { workId } : {},
     });
   }
 
@@ -684,6 +692,42 @@ class MockAdminApi implements AdminApi {
     Object.assign(asset, input, { updatedAt: now() });
     this.audit("media.update", "media_asset", mediaId);
     return structuredClone(asset);
+  }
+
+  public async promoteMediaCover(mediaId: string, workId?: string) {
+    await delay();
+    const source = [...this.bundles.values()]
+      .flatMap((bundle) => bundle.assets)
+      .find((item) => item.id === mediaId);
+    if (!source) throw new AdminApiError("媒体资源不存在", "NOT_FOUND");
+    if (
+      source.type !== "image" ||
+      !["browse", "thumbnail"].includes(source.variant ?? "") ||
+      source.presentationScope !== "public_preview" ||
+      source.status !== "available"
+    ) {
+      throw new AdminApiError("只有可用的公开预览图片可以设为封面", "VALIDATION_FAILED");
+    }
+    const bundle = this.bundles.get(workId ?? source.workId ?? "");
+    if (!bundle) throw new AdminApiError("作品不存在", "NOT_FOUND");
+    const cover: MediaAsset = {
+      ...structuredClone(source),
+      id: uuid(950),
+      workId: bundle.work.id,
+      unitId: null,
+      role: "public_cover",
+      isPrimary: true,
+      parentAssetId: source.id,
+      ordinal: 0,
+      status: "available",
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    bundle.assets.push(cover);
+    bundle.work.publicCoverAssetId = cover.id;
+    bundle.work.updatedAt = now();
+    this.audit("media.promote_cover", "media_asset", cover.id);
+    return structuredClone(cover);
   }
 
   public async getSettings() {

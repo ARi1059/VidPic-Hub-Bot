@@ -153,7 +153,9 @@ export function App() {
             onEdit={(workId) => setEditorWorkId(workId)}
           />
         )}
-        {activePage === "待入库" && <IngestionPage items={ingestion} onAttach={setAttachItem} />}
+        {activePage === "待入库" && (
+          <IngestionPage items={ingestion} onAttach={setAttachItem} onRefresh={refreshIngestion} />
+        )}
         {activePage === "用户与会员" && (
           <UsersPage
             users={users}
@@ -500,61 +502,132 @@ function WorksPage({
 function IngestionPage({
   items,
   onAttach,
+  onRefresh,
 }: {
   items: IngestionItem[];
   onAttach(item: IngestionItem): void;
+  onRefresh(): Promise<void>;
 }) {
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="page-stack">
       <PageIntro
         title="私有频道待入库媒体"
-        description="频道消息只记录 Telegram 文件标识与元数据，不在业务服务器保存媒体文件。"
+        description="文件先发送到 Telegram 私有存储频道，Bot 自动登记后在这里关联作品和内容单元。"
         summary={`${pendingCount(items)} 项待处理`}
+        action={
+          <div className="ingestion-tools">
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => setGuideOpen((value) => !value)}
+            >
+              {guideOpen ? "收起上传说明" : "上传媒体说明"}
+            </button>
+            <button
+              className="secondary"
+              type="button"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+            >
+              <RefreshCw size={14} className={refreshing ? "spin" : undefined} /> 刷新列表
+            </button>
+          </div>
+        }
       />
-      <section className="table-section flush">
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>文件</th>
-                <th>类型</th>
-                <th>大小 / 规格</th>
-                <th>频道消息</th>
-                <th>状态</th>
-                <th>
-                  <span className="sr-only">操作</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <strong>{textMetadata(item.mediaMetadata.fileName, "未命名媒体")}</strong>
-                    <small>{formatDateTime(item.createdAt)}</small>
-                  </td>
-                  <td>{mediaTypeLabel(item.mediaMetadata.type)}</td>
-                  <td>{formatMediaMetadata(item.mediaMetadata)}</td>
-                  <td>#{item.sourceMessageId}</td>
-                  <td>
-                    <IngestionStatus status={item.status} />
-                  </td>
-                  <td>
-                    <button
-                      className="row-action"
-                      type="button"
-                      disabled={item.status === "linked"}
-                      onClick={() => onAttach(item)}
-                    >
-                      {item.status === "linked" ? "已关联" : "关联入库"}
-                    </button>
-                  </td>
+      {guideOpen && (
+        <section className="upload-guide" aria-label="上传媒体说明">
+          <div>
+            <Archive size={20} />
+            <div>
+              <strong>从 Telegram 私有存储频道上传</strong>
+              <p>
+                管理台不直接接收媒体文件。请使用 Telegram 客户端将照片、browse/thumbnail
+                图片或视频发送到已配置的私有频道；Bot 只保存文件 ID 和元数据，不会把媒体下载到 VPS。
+              </p>
+            </div>
+          </div>
+          <ol>
+            <li>先发送媒体到私有存储频道，等待 Bot 完成登记。</li>
+            <li>回到此页点击“刷新列表”，再点击对应记录的“关联入库”。</li>
+            <li>封面请勾选“设为作品独立公开封面”；正文媒体关联后在作品编排中确认可用。</li>
+          </ol>
+          <p className="upload-guide-note">
+            频道在 Bot 加入前发送的历史消息不会自动出现，请重新发送需要入库的媒体。
+          </p>
+        </section>
+      )}
+      {items.length === 0 ? (
+        <section className="ingestion-empty">
+          <Archive size={24} />
+          <strong>暂无待入库媒体</strong>
+          <p>先在 Telegram 私有存储频道发送媒体，再刷新此列表。</p>
+          <button
+            className="secondary"
+            type="button"
+            disabled={refreshing}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={14} className={refreshing ? "spin" : undefined} /> 刷新列表
+          </button>
+        </section>
+      ) : (
+        <section className="table-section flush">
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>文件</th>
+                  <th>类型</th>
+                  <th>大小 / 规格</th>
+                  <th>频道消息</th>
+                  <th>状态</th>
+                  <th>
+                    <span className="sr-only">操作</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <strong>{textMetadata(item.mediaMetadata.fileName, "未命名媒体")}</strong>
+                      <small>{formatDateTime(item.createdAt)}</small>
+                    </td>
+                    <td>{mediaTypeLabel(item.mediaMetadata.type)}</td>
+                    <td>{formatMediaMetadata(item.mediaMetadata)}</td>
+                    <td>#{item.sourceMessageId}</td>
+                    <td>
+                      <IngestionStatus status={item.status} />
+                    </td>
+                    <td>
+                      <button
+                        className="row-action"
+                        type="button"
+                        disabled={item.status === "linked"}
+                        onClick={() => onAttach(item)}
+                      >
+                        {item.status === "linked" ? "已关联" : "关联入库"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -871,10 +944,12 @@ function PageIntro({
   title,
   description,
   summary,
+  action,
 }: {
   title: string;
   description: string;
   summary: string;
+  action?: React.ReactNode;
 }) {
   return (
     <div className="section-intro">
@@ -882,7 +957,10 @@ function PageIntro({
         <h2>{title}</h2>
         <p>{description}</p>
       </div>
-      <span>{summary}</span>
+      <div className="section-intro-side">
+        <span>{summary}</span>
+        {action}
+      </div>
     </div>
   );
 }
@@ -1083,6 +1161,7 @@ function actionLabel(value: string) {
     "unit.create": "创建内容单元",
     "unit.update": "更新内容单元",
     "media.update": "确认媒体",
+    "media.promote_cover": "设置独立封面",
     "ingestion.attach": "关联入库媒体",
     "user.membership": "调整会员",
     "settings.membership": "切换会员权限",

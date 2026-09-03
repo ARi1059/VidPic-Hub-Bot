@@ -149,6 +149,10 @@ bot.on("channel_post", async (context) => {
       target: [ingestionItems.storageChatId, ingestionItems.sourceMessageId],
       set: { mediaMetadata: metadata, updatedAt: new Date() },
     });
+  server.log.info(
+    { sourceMessageId: message.message_id, mediaType: metadata.type },
+    "Storage channel media ingested",
+  );
 });
 
 bot.command("admin", async (context) => {
