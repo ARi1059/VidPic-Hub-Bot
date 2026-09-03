@@ -14,7 +14,7 @@
     "@film-bot/contracts": "workspace:*",
     "@film-bot/database": "workspace:*",
     "bullmq": "^5.58.2",
-    "drizzle-orm": "^0.44.5",
+    "drizzle-orm": "^0.45.2",
     "fastify": "^5.5.0",
     "grammy": "^1.38.2",
     "ioredis": "^5.7.0"
