@@ -5,7 +5,7 @@ import { isValidPublicCover } from "./media.js";
 
 export interface PublicationAssetSnapshot {
   id: string;
-  type: "video" | "image" | "thumbnail" | "cover" | "file";
+  type: "video" | "image" | "thumbnail" | "cover" | "file" | "archive";
   variant: "source" | "browse" | "thumbnail" | null;
   presentationScope: "public_preview" | "protected_content";
   status: "pending" | "available" | "invalid" | "withdrawn";
@@ -43,6 +43,7 @@ export type PublicationIssueCode =
   | "PUBLISHED_UNIT_REQUIRED"
   | "UNIT_TYPE_NOT_ALLOWED"
   | "AVAILABLE_MEDIA_REQUIRED"
+  | "ARCHIVE_SOURCE_NOT_PUBLISHABLE"
   | "COMIC_VIDEO_FORBIDDEN"
   | "IMAGE_LOGICAL_ID_REQUIRED"
   | "IMAGE_VARIANT_REQUIRED"
@@ -56,6 +57,8 @@ export interface PublicationIssue {
 }
 
 const imageTypes = new Set(["image", "thumbnail", "cover"]);
+const imageUnitTypes = new Set(["comic_chapter", "image_set", "photoshoot_set"]);
+const videoUnitTypes = new Set(["movie", "episode", "short_video", "behind_the_scenes_video"]);
 
 function validateBrowseImage(
   asset: PublicationAssetSnapshot,
@@ -129,6 +132,14 @@ export function validateWorkPublication(snapshot: WorkPublicationSnapshot): Publ
       continue;
     }
 
+    if (availableAssets.some((asset) => asset.type === "archive")) {
+      issues.push({
+        code: "ARCHIVE_SOURCE_NOT_PUBLISHABLE",
+        path: `${unitPath}.assets`,
+        message: "压缩包仅可作为导入源，完成图片导入并生成全部图片版本后才能发布",
+      });
+    }
+
     if (snapshot.type === "comic" && availableAssets.some((asset) => asset.type === "video")) {
       issues.push({
         code: "COMIC_VIDEO_FORBIDDEN",
@@ -137,7 +148,27 @@ export function validateWorkPublication(snapshot: WorkPublicationSnapshot): Publ
       });
     }
 
+    if (videoUnitTypes.has(unit.type)) {
+      if (!availableAssets.some((asset) => asset.type === "video")) {
+        issues.push({
+          code: "AVAILABLE_MEDIA_REQUIRED",
+          path: `${unitPath}.assets`,
+          message: "视频内容单元至少需要一个可用视频资源",
+        });
+      }
+      continue;
+    }
+
     const images = availableAssets.filter((asset) => imageTypes.has(asset.type));
+    if (imageUnitTypes.has(unit.type) && images.length === 0) {
+      issues.push({
+        code: "AVAILABLE_MEDIA_REQUIRED",
+        path: `${unitPath}.assets`,
+        message: "图片内容单元至少需要一个完整的图片页面资源",
+      });
+      continue;
+    }
+
     const groups = new Map<string, PublicationAssetSnapshot[]>();
     for (const asset of images) {
       if (!asset.logicalAssetId) {

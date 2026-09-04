@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const mediaTypeSchema = z.enum(["video", "image", "thumbnail", "cover", "file"]);
+export const mediaTypeSchema = z.enum(["video", "image", "thumbnail", "cover", "file", "archive"]);
 export const mediaVariantSchema = z.enum(["source", "browse", "thumbnail"]);
 export const presentationScopeSchema = z.enum(["public_preview", "protected_content"]);
 export const mediaStatusSchema = z.enum(["pending", "available", "invalid", "withdrawn"]);

@@ -7,6 +7,7 @@ import {
   CircleHelp,
   LayoutDashboard,
   Library,
+  ListOrdered,
   LoaderCircle,
   Menu,
   Plus,
@@ -24,6 +25,8 @@ import {
   type AdminProfile,
   type AdminUser,
   type AdminWork,
+  type ArchiveSortRule,
+  type ArchiveSortRuleInput,
   type AuditLog,
   type IngestionItem,
   type PublicationStatus,
@@ -32,13 +35,15 @@ import {
 } from "./api.js";
 import { IngestionDrawer, WorkEditor } from "./editors.js";
 
-type Page = "概览" | "作品" | "待入库" | "用户与会员" | "审计日志" | "系统设置" | "操作说明";
+type Page =
+  "概览" | "作品" | "待入库" | "图片排序规则" | "用户与会员" | "审计日志" | "系统设置" | "操作说明";
 type StatusFilter = "all" | PublicationStatus;
 
 const navigation: Array<{ label: Page; icon: typeof LayoutDashboard }> = [
   { label: "概览", icon: LayoutDashboard },
   { label: "作品", icon: Library },
   { label: "待入库", icon: Archive },
+  { label: "图片排序规则", icon: ListOrdered },
   { label: "用户与会员", icon: Users },
   { label: "审计日志", icon: ShieldCheck },
   { label: "系统设置", icon: Settings },
@@ -65,6 +70,7 @@ export function App() {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [ingestion, setIngestion] = useState<IngestionItem[]>([]);
+  const [archiveRules, setArchiveRules] = useState<ArchiveSortRule[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [editorWorkId, setEditorWorkId] = useState<string | null | undefined>(undefined);
   const [attachItem, setAttachItem] = useState<IngestionItem | null>(null);
@@ -77,20 +83,29 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      const [nextProfile, nextWorks, nextSettings, nextUsers, nextIngestion, nextLogs] =
-        await Promise.all([
-          adminApi.initialize(),
-          adminApi.listWorks(),
-          adminApi.getSettings(),
-          adminApi.listUsers(),
-          adminApi.listIngestion(),
-          adminApi.listAuditLogs(),
-        ]);
+      const [
+        nextProfile,
+        nextWorks,
+        nextSettings,
+        nextUsers,
+        nextIngestion,
+        nextArchiveRules,
+        nextLogs,
+      ] = await Promise.all([
+        adminApi.initialize(),
+        adminApi.listWorks(),
+        adminApi.getSettings(),
+        adminApi.listUsers(),
+        adminApi.listIngestion(),
+        adminApi.listArchiveSortRules(),
+        adminApi.listAuditLogs(),
+      ]);
       setProfile(nextProfile);
       setWorks(nextWorks);
       setSettings(nextSettings);
       setUsers(nextUsers);
       setIngestion(nextIngestion);
+      setArchiveRules(nextArchiveRules);
       setAuditLogs(nextLogs);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -112,6 +127,7 @@ export function App() {
 
   const refreshWorks = async () => setWorks(await adminApi.listWorks());
   const refreshIngestion = async () => setIngestion(await adminApi.listIngestion());
+  const refreshArchiveRules = async () => setArchiveRules(await adminApi.listArchiveSortRules());
   const refreshAudit = async () => setAuditLogs(await adminApi.listAuditLogs());
 
   const handleMembershipSetting = async () => {
@@ -155,6 +171,21 @@ export function App() {
         )}
         {activePage === "待入库" && (
           <IngestionPage items={ingestion} onAttach={setAttachItem} onRefresh={refreshIngestion} />
+        )}
+        {activePage === "图片排序规则" && (
+          <ArchiveSortRulesPage
+            rules={archiveRules}
+            onCreate={async (input) => {
+              await adminApi.createArchiveSortRule(input);
+              await Promise.all([refreshArchiveRules(), refreshAudit()]);
+              notify("图片排序规则已新增");
+            }}
+            onDelete={async (ruleId) => {
+              await adminApi.deleteArchiveSortRule(ruleId);
+              await Promise.all([refreshArchiveRules(), refreshAudit()]);
+              notify("图片排序规则已删除");
+            }}
+          />
         )}
         {activePage === "用户与会员" && (
           <UsersPage
@@ -277,6 +308,7 @@ export function App() {
         <IngestionDrawer
           item={attachItem}
           works={works}
+          archiveRules={archiveRules}
           onClose={() => setAttachItem(null)}
           onAttached={async () => {
             await Promise.all([refreshIngestion(), refreshWorks(), refreshAudit()]);
@@ -554,13 +586,15 @@ function IngestionPage({
               <strong>从 Telegram 私有存储频道上传</strong>
               <p>
                 管理台不直接接收媒体文件。请使用 Telegram 客户端将照片、browse/thumbnail
-                图片或视频发送到已配置的私有频道；Bot 只保存文件 ID 和元数据，不会把媒体下载到 VPS。
+                图片、视频或 ZIP/CBZ 压缩包发送到已配置的私有频道；Bot 只保存文件 ID
+                和元数据，压缩包仅在导入任务运行时下载到隔离临时目录。
               </p>
             </div>
           </div>
           <ol>
             <li>先发送媒体到私有存储频道，等待 Bot 完成登记。</li>
             <li>回到此页点击“刷新列表”，再点击对应记录的“关联入库”。</li>
+            <li>压缩包关联时选择图片排序规则；它仅作为导入源，完成图片转换并核验后才可发布。</li>
             <li>封面请勾选“设为作品独立公开封面”；正文媒体关联后在作品编排中确认可用。</li>
           </ol>
           <p className="upload-guide-note">
@@ -628,6 +662,243 @@ function IngestionPage({
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+function ArchiveSortRulesPage({
+  rules,
+  onCreate,
+  onDelete,
+}: {
+  rules: ArchiveSortRule[];
+  onCreate(input: ArchiveSortRuleInput): Promise<void>;
+  onDelete(ruleId: string): Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [kind, setKind] = useState<ArchiveSortRuleInput["kind"]>("natural");
+  const [filePattern, setFilePattern] = useState("");
+  const [chapterPattern, setChapterPattern] = useState("");
+  const [pagePattern, setPagePattern] = useState("");
+  const [direction, setDirection] = useState<ArchiveSortRuleInput["direction"]>("asc");
+  const [priority, setPriority] = useState("200");
+  const [enabled, setEnabled] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!name.trim()) {
+      setError("请填写规则名称");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await onCreate({
+        name: name.trim(),
+        description: description.trim() || null,
+        kind,
+        filePattern: filePattern.trim() || null,
+        chapterPattern: chapterPattern.trim() || null,
+        pagePattern: pagePattern.trim() || null,
+        direction,
+        priority: Math.max(0, Number.parseInt(priority, 10) || 0),
+        enabled,
+      });
+      setName("");
+      setDescription("");
+      setFilePattern("");
+      setChapterPattern("");
+      setPagePattern("");
+      setPriority("200");
+      setEnabled(true);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (rule: ArchiveSortRule) => {
+    if (!window.confirm(`删除图片排序规则“${rule.name}”？`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onDelete(rule.id);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="page-stack">
+      <PageIntro
+        title="压缩包图片排序规则"
+        description="ZIP 与 CBZ 导入时使用的图片筛选、章节识别和页序规则。内置规则可直接选用，自定义规则可新增或删除。"
+        summary={`${rules.length} 条规则`}
+      />
+      <section className="table-section flush">
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>规则</th>
+                <th>排序方式</th>
+                <th>过滤 / 捕获</th>
+                <th>状态</th>
+                <th>优先级</th>
+                <th>
+                  <span className="sr-only">操作</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((rule) => (
+                <tr key={rule.id}>
+                  <td>
+                    <strong>{rule.name}</strong>
+                    <small>{rule.description ?? "未填写说明"}</small>
+                  </td>
+                  <td>{archiveSortKindLabel(rule.kind)}</td>
+                  <td>
+                    <code>{rule.filePattern ?? "全部图片"}</code>
+                    {rule.kind === "chapter_page" && (
+                      <small>
+                        章节：{rule.chapterPattern ?? "自动"}；页码：{rule.pagePattern ?? "自动"}
+                      </small>
+                    )}
+                  </td>
+                  <td>
+                    <span className={rule.enabled ? "status published" : "status withdrawn"}>
+                      {rule.enabled ? "启用" : "停用"}
+                    </span>
+                    {rule.system && <small>内置</small>}
+                  </td>
+                  <td>{rule.priority}</td>
+                  <td>
+                    {rule.system ? (
+                      <small>内置规则</small>
+                    ) : (
+                      <button
+                        className="row-action danger-text"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void remove(rule)}
+                      >
+                        删除
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="plain-panel">
+        <SectionHeading
+          title="新增自定义规则"
+          detail="正则可使用命名组 number 或第一个捕获组提取数字"
+        />
+        {error && (
+          <div className="page-alert">
+            <CircleAlert size={17} />
+            <span>{error}</span>
+          </div>
+        )}
+        <div className="field-grid three">
+          <label>
+            规则名称
+            <input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label>
+            排序方式
+            <select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}>
+              <option value="natural">自然文件名</option>
+              <option value="numeric">数字序号</option>
+              <option value="chapter_page">章节与页码</option>
+              <option value="path">目录路径</option>
+            </select>
+          </label>
+          <label>
+            排序方向
+            <select
+              value={direction}
+              onChange={(event) => setDirection(event.target.value as typeof direction)}
+            >
+              <option value="asc">正序</option>
+              <option value="desc">倒序</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          说明
+          <input
+            value={description}
+            maxLength={240}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </label>
+        <div className="field-grid three">
+          <label>
+            图片过滤正则
+            <input
+              value={filePattern}
+              maxLength={240}
+              placeholder="例如 ^chapter-\\d+/"
+              onChange={(event) => setFilePattern(event.target.value)}
+            />
+          </label>
+          <label>
+            章节捕获正则
+            <input
+              value={chapterPattern}
+              maxLength={240}
+              placeholder="例如 chapter-(?<number>\\d+)"
+              disabled={kind !== "chapter_page"}
+              onChange={(event) => setChapterPattern(event.target.value)}
+            />
+          </label>
+          <label>
+            页码捕获正则
+            <input
+              value={pagePattern}
+              maxLength={240}
+              placeholder="例如 page-(?<number>\\d+)"
+              disabled={kind !== "chapter_page"}
+              onChange={(event) => setPagePattern(event.target.value)}
+            />
+          </label>
+        </div>
+        <div className="field-grid">
+          <label>
+            优先级
+            <input
+              type="number"
+              min="0"
+              max="10000"
+              value={priority}
+              onChange={(event) => setPriority(event.target.value)}
+            />
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+            />
+            新规则立即启用
+          </label>
+        </div>
+        <div className="drawer-footer">
+          <button className="publish" type="button" disabled={busy} onClick={() => void submit()}>
+            {busy ? <LoaderCircle className="spin" size={17} /> : <Plus size={17} />}新增规则
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1137,9 +1408,20 @@ function mediaTypeLabel(value: unknown) {
     ? "视频"
     : value === "image"
       ? "图片"
-      : value === "document"
-        ? "文件"
-        : "未知";
+      : value === "archive"
+        ? "压缩包"
+        : value === "file" || value === "document"
+          ? "文件"
+          : "未知";
+}
+function archiveSortKindLabel(value: ArchiveSortRule["kind"]) {
+  return value === "numeric"
+    ? "数字序号"
+    : value === "chapter_page"
+      ? "章节与页码"
+      : value === "path"
+        ? "目录路径"
+        : "自然文件名";
 }
 function botStatusLabel(value: AdminUser["botSendStatus"]) {
   return value === "available"
@@ -1163,6 +1445,8 @@ function actionLabel(value: string) {
     "media.update": "确认媒体",
     "media.promote_cover": "设置独立封面",
     "ingestion.attach": "关联入库媒体",
+    "archive_sort_rule.create": "新增图片排序规则",
+    "archive_sort_rule.delete": "删除图片排序规则",
     "user.membership": "调整会员",
     "settings.membership": "切换会员权限",
   };

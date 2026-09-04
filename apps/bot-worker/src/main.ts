@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { parseServerEnvironment } from "@film-bot/config";
+import { detectArchiveFormat } from "@film-bot/contracts";
 import {
   createDatabase,
   adminAccounts,
@@ -289,13 +290,17 @@ function extractIngestionMetadata(message: {
   }
   if (message.document) {
     const mimeType = message.document.mime_type ?? "application/octet-stream";
-    const type = mimeType.startsWith("image/")
-      ? "image"
-      : mimeType.startsWith("video/")
-        ? "video"
-        : "file";
+    const archiveFormat = detectArchiveFormat(message.document.file_name, mimeType);
+    const type = archiveFormat
+      ? "archive"
+      : mimeType.startsWith("image/")
+        ? "image"
+        : mimeType.startsWith("video/")
+          ? "video"
+          : "file";
     return {
       type,
+      ...(archiveFormat ? { archiveFormat } : {}),
       fileId: message.document.file_id,
       fileUniqueId: message.document.file_unique_id,
       fileName: message.document.file_name,

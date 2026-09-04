@@ -1,7 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Check,
+  Archive,
   CircleAlert,
+  File,
   FileImage,
   FileVideo,
   LoaderCircle,
@@ -14,6 +16,7 @@ import {
   adminApi,
   AdminApiError,
   type AdminWork,
+  type ArchiveSortRule,
   type ContentUnit,
   type IngestionItem,
   type MediaAsset,
@@ -56,6 +59,16 @@ const unitLabels: Record<UnitType, string> = {
   photoshoot_set: "写真集",
   behind_the_scenes_video: "花絮视频",
 };
+
+function archiveSortKindLabel(kind: ArchiveSortRule["kind"]) {
+  return kind === "numeric"
+    ? "数字序号"
+    : kind === "chapter_page"
+      ? "章节与页码"
+      : kind === "path"
+        ? "目录路径"
+        : "自然文件名";
+}
 
 const sectionTypesByWork: Record<WorkType, SectionType[]> = {
   video: ["play", "episodes", "stills"],
@@ -480,11 +493,13 @@ export function WorkEditor({
 export function IngestionDrawer({
   item,
   works,
+  archiveRules,
   onClose,
   onAttached,
 }: {
   item: IngestionItem;
   works: AdminWork[];
+  archiveRules: ArchiveSortRule[];
   onClose(): void;
   onAttached(): Promise<void>;
 }) {
@@ -492,13 +507,24 @@ export function IngestionDrawer({
   const [bundle, setBundle] = useState<WorkBundle | null>(null);
   const [unitId, setUnitId] = useState("");
   const [role, setRole] = useState(
-    item.mediaMetadata.type === "video" ? "primary_video" : "browse_image",
+    item.mediaMetadata.type === "video"
+      ? "primary_video"
+      : item.mediaMetadata.type === "image"
+        ? "browse_image"
+        : item.mediaMetadata.type === "archive"
+          ? "archive_source"
+          : "source_file",
   );
   const [variant, setVariant] = useState<"source" | "browse" | "thumbnail" | "">(
     item.mediaMetadata.type === "image" ? "browse" : "",
   );
   const [scope, setScope] = useState<"public_preview" | "protected_content">("protected_content");
   const [logicalAssetId, setLogicalAssetId] = useState("");
+  const [archiveSortRuleId, setArchiveSortRuleId] = useState(
+    item.mediaMetadata.type === "archive"
+      ? (archiveRules.find((rule) => rule.enabled)?.id ?? "")
+      : "",
+  );
   const [ordinal, setOrdinal] = useState("0");
   const [setAsCover, setSetAsCover] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -519,6 +545,10 @@ export function IngestionDrawer({
       setError("请选择作品并填写媒体角色");
       return;
     }
+    if (item.mediaMetadata.type === "archive" && !archiveSortRuleId) {
+      setError("压缩包入库必须选择图片排序规则");
+      return;
+    }
     if (item.mediaMetadata.type === "image" && !logicalAssetId && !setAsCover) {
       setError("图片版本必须填写同组逻辑资源 ID");
       return;
@@ -528,10 +558,22 @@ export function IngestionDrawer({
     try {
       const asset = await adminApi.attachIngestion(item.id, {
         ...(unitId ? { unitId } : { workId }),
-        role: setAsCover ? "public_cover" : role.trim(),
-        variant: setAsCover ? "thumbnail" : variant || null,
-        presentationScope: setAsCover ? "public_preview" : scope,
-        logicalAssetId: logicalAssetId || null,
+        role:
+          item.mediaMetadata.type === "archive"
+            ? "archive_source"
+            : setAsCover
+              ? "public_cover"
+              : role.trim(),
+        variant:
+          item.mediaMetadata.type === "archive" ? null : setAsCover ? "thumbnail" : variant || null,
+        presentationScope:
+          item.mediaMetadata.type === "archive"
+            ? "protected_content"
+            : setAsCover
+              ? "public_preview"
+              : scope,
+        logicalAssetId: item.mediaMetadata.type === "archive" ? null : logicalAssetId || null,
+        archiveSortRuleId: item.mediaMetadata.type === "archive" ? archiveSortRuleId : null,
         ordinal: Number(ordinal) || 0,
       });
       if (setAsCover) await adminApi.updateWork(workId, { publicCoverAssetId: asset.id });
@@ -548,7 +590,15 @@ export function IngestionDrawer({
       <div className="editor-body">
         {error && <InlineError message={error} />}
         <div className="source-summary">
-          {item.mediaMetadata.type === "video" ? <FileVideo size={21} /> : <FileImage size={21} />}
+          {item.mediaMetadata.type === "video" ? (
+            <FileVideo size={21} />
+          ) : item.mediaMetadata.type === "image" ? (
+            <FileImage size={21} />
+          ) : item.mediaMetadata.type === "archive" ? (
+            <Archive size={21} />
+          ) : (
+            <File size={21} />
+          )}
           <div>
             <strong>{textMetadata(item.mediaMetadata.fileName, "未命名媒体")}</strong>
             <span>{formatMediaMetadata(item.mediaMetadata)}</span>
@@ -579,18 +629,20 @@ export function IngestionDrawer({
             ))}
           </select>
         </label>
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={setAsCover}
-            onChange={(event) => {
-              setSetAsCover(event.target.checked);
-              if (event.target.checked) setUnitId("");
-            }}
-          />
-          设为作品独立公开封面
-        </label>
-        {!setAsCover && (
+        {item.mediaMetadata.type !== "archive" && (
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={setAsCover}
+              onChange={(event) => {
+                setSetAsCover(event.target.checked);
+                if (event.target.checked) setUnitId("");
+              }}
+            />
+            设为作品独立公开封面
+          </label>
+        )}
+        {!setAsCover && item.mediaMetadata.type !== "archive" && (
           <>
             <div className="field-grid">
               <label>
@@ -642,6 +694,24 @@ export function IngestionDrawer({
             </div>
           </label>
         )}
+        {item.mediaMetadata.type === "archive" && (
+          <label>
+            图片排序规则
+            <select
+              value={archiveSortRuleId}
+              onChange={(event) => setArchiveSortRuleId(event.target.value)}
+            >
+              <option value="">选择排序规则</option>
+              {archiveRules
+                .filter((rule) => rule.enabled)
+                .map((rule) => (
+                  <option key={rule.id} value={rule.id}>
+                    {rule.name} · {archiveSortKindLabel(rule.kind)}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         <label>
           排序序号
           <input
@@ -653,7 +723,11 @@ export function IngestionDrawer({
         </label>
         <div className="validation-note">
           <CircleAlert size={17} />
-          <span>关联后媒体状态为待确认。请在作品编排中核验元数据并设为可用。</span>
+          <span>
+            {item.mediaMetadata.type === "archive"
+              ? "压缩包只作为导入源。图片转换、三版本生成与预览核验完成前不能发布。"
+              : "关联后媒体状态为待确认。请在作品编排中核验元数据并设为可用。"}
+          </span>
         </div>
       </div>
       <div className="drawer-footer">

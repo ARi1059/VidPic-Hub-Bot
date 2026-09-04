@@ -61,7 +61,21 @@ export const unitTypeEnum = pgEnum("unit_type", [
   "photoshoot_set",
   "behind_the_scenes_video",
 ]);
-export const mediaTypeEnum = pgEnum("media_type", ["video", "image", "thumbnail", "cover", "file"]);
+export const mediaTypeEnum = pgEnum("media_type", [
+  "video",
+  "image",
+  "thumbnail",
+  "cover",
+  "file",
+  "archive",
+]);
+export const archiveSortKindEnum = pgEnum("archive_sort_kind", [
+  "natural",
+  "numeric",
+  "chapter_page",
+  "path",
+]);
+export const archiveSortDirectionEnum = pgEnum("archive_sort_direction", ["asc", "desc"]);
 export const mediaVariantEnum = pgEnum("media_variant", ["source", "browse", "thumbnail"]);
 export const presentationScopeEnum = pgEnum("presentation_scope", [
   "public_preview",
@@ -127,6 +141,31 @@ export const adminAccounts = pgTable(
     ...timestamps,
   },
   (table) => [uniqueIndex("admin_accounts_telegram_user_id_unique").on(table.telegramUserId)],
+);
+
+export const archiveSortRules = pgTable(
+  "archive_sort_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description"),
+    kind: archiveSortKindEnum("kind").notNull(),
+    filePattern: text("file_pattern"),
+    chapterPattern: text("chapter_pattern"),
+    pagePattern: text("page_pattern"),
+    direction: archiveSortDirectionEnum("direction").notNull().default("asc"),
+    priority: integer("priority").notNull().default(100),
+    enabled: boolean("enabled").notNull().default(true),
+    system: boolean("system").notNull().default(false),
+    createdByAdminId: uuid("created_by_admin_id").references(() => adminAccounts.id, {
+      onDelete: "set null",
+    }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("archive_sort_rules_name_unique").on(table.name),
+    index("archive_sort_rules_active_index").on(table.enabled, table.priority),
+  ],
 );
 
 export const systemSettings = pgTable("system_settings", {
@@ -264,6 +303,9 @@ export const mediaAssets = pgTable(
     isPrimary: boolean("is_primary").notNull().default(false),
     logicalAssetId: uuid("logical_asset_id"),
     parentAssetId: uuid("parent_asset_id").references((): AnyPgColumn => mediaAssets.id, {
+      onDelete: "set null",
+    }),
+    archiveSortRuleId: uuid("archive_sort_rule_id").references(() => archiveSortRules.id, {
       onDelete: "set null",
     }),
     variant: mediaVariantEnum("variant"),

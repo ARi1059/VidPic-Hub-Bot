@@ -98,6 +98,7 @@ export const createMediaAssetRequestSchema = z.object({
   isPrimary: z.boolean().default(false),
   logicalAssetId: z.string().uuid().nullable().optional(),
   parentAssetId: z.string().uuid().nullable().optional(),
+  archiveSortRuleId: z.string().uuid().nullable().optional(),
   variant: mediaVariantSchema.nullable().optional(),
   presentationScope: presentationScopeSchema.default("protected_content"),
   ordinal: z.number().int().nonnegative().default(0),
@@ -120,8 +121,11 @@ export const ingestionAttachRequestSchema = z.object({
   variant: mediaVariantSchema.nullable().optional(),
   presentationScope: presentationScopeSchema.default("protected_content"),
   logicalAssetId: z.string().uuid().nullable().optional(),
+  archiveSortRuleId: z.string().uuid().nullable().optional(),
   ordinal: z.number().int().nonnegative().default(0),
 });
+
+export const archiveSortRuleIdSchema = z.object({ archiveSortRuleId: z.string().uuid() });
 
 export const promoteMediaCoverRequestSchema = z.object({
   workId: z.string().uuid().optional(),

@@ -96,7 +96,7 @@ export interface MediaAsset {
   id: string;
   workId: string | null;
   unitId: string | null;
-  type: "video" | "image" | "thumbnail" | "cover" | "file";
+  type: "video" | "image" | "thumbnail" | "cover" | "file" | "archive";
   role: string;
   storageChatId: string;
   sourceMessageId: number;
@@ -113,6 +113,7 @@ export interface MediaAsset {
   isPrimary: boolean;
   logicalAssetId: string | null;
   parentAssetId: string | null;
+  archiveSortRuleId: string | null;
   variant: "source" | "browse" | "thumbnail" | null;
   presentationScope: "public_preview" | "protected_content";
   ordinal: number;
@@ -212,7 +213,39 @@ export interface IngestionAttachInput {
   variant?: "source" | "browse" | "thumbnail" | null;
   presentationScope: "public_preview" | "protected_content";
   logicalAssetId?: string | null;
+  archiveSortRuleId?: string | null;
   ordinal: number;
+}
+
+export type ArchiveSortKind = "natural" | "numeric" | "chapter_page" | "path";
+export type ArchiveSortDirection = "asc" | "desc";
+
+export interface ArchiveSortRule {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: ArchiveSortKind;
+  filePattern: string | null;
+  chapterPattern: string | null;
+  pagePattern: string | null;
+  direction: ArchiveSortDirection;
+  priority: number;
+  enabled: boolean;
+  system: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ArchiveSortRuleInput {
+  name: string;
+  description?: string | null;
+  kind: ArchiveSortKind;
+  filePattern?: string | null;
+  chapterPattern?: string | null;
+  pagePattern?: string | null;
+  direction: ArchiveSortDirection;
+  priority: number;
+  enabled: boolean;
 }
 
 interface ApiEnvelope<T> {
@@ -261,6 +294,9 @@ interface AdminApi {
   ): Promise<AdminUser>;
   listIngestion(): Promise<IngestionItem[]>;
   attachIngestion(ingestionId: string, input: IngestionAttachInput): Promise<MediaAsset>;
+  listArchiveSortRules(): Promise<ArchiveSortRule[]>;
+  createArchiveSortRule(input: ArchiveSortRuleInput): Promise<ArchiveSortRule>;
+  deleteArchiveSortRule(ruleId: string): Promise<void>;
   listAuditLogs(): Promise<AuditLog[]>;
 }
 
@@ -399,6 +435,23 @@ class HttpAdminApi implements AdminApi {
     });
   }
 
+  public listArchiveSortRules() {
+    return this.request<ArchiveSortRule[]>("/api/admin/archive-sort-rules");
+  }
+
+  public createArchiveSortRule(input: ArchiveSortRuleInput) {
+    return this.request<ArchiveSortRule>("/api/admin/archive-sort-rules", {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  public async deleteArchiveSortRule(ruleId: string) {
+    await this.request<{ id: string }>(`/api/admin/archive-sort-rules/${ruleId}`, {
+      method: "DELETE",
+    });
+  }
+
   public listAuditLogs() {
     return this.request<AuditLog[]>("/api/admin/audit-logs");
   }
@@ -443,7 +496,7 @@ class HttpAdminApi implements AdminApi {
 
   private async request<T>(
     path: string,
-    options: { method?: "GET" | "POST" | "PATCH"; body?: unknown } = {},
+    options: { method?: "GET" | "POST" | "PATCH" | "DELETE"; body?: unknown } = {},
     retryOnUnauthorized = true,
   ): Promise<T> {
     const token = await this.ensureToken();
@@ -529,6 +582,7 @@ class MockAdminApi implements AdminApi {
   private readonly users = structuredClone(mockUsers);
   private readonly ingestion = structuredClone(mockIngestion);
   private readonly logs = structuredClone(mockAuditLogs);
+  private readonly archiveSortRules = structuredClone(mockArchiveSortRules);
   private settings: SystemSettings = {
     id: uuid(900),
     membershipEnabled: true,
@@ -780,6 +834,53 @@ class MockAdminApi implements AdminApi {
     return structuredClone(asset);
   }
 
+  public async listArchiveSortRules() {
+    await delay();
+    return structuredClone(
+      [...this.archiveSortRules].sort(
+        (left, right) =>
+          Number(right.system) - Number(left.system) ||
+          left.priority - right.priority ||
+          left.name.localeCompare(right.name),
+      ),
+    );
+  }
+
+  public async createArchiveSortRule(input: ArchiveSortRuleInput) {
+    await delay();
+    if (this.archiveSortRules.some((rule) => rule.name === input.name.trim())) {
+      throw new AdminApiError("排序规则名称已存在", "CONFLICT");
+    }
+    const rule: ArchiveSortRule = {
+      id: crypto.randomUUID(),
+      name: input.name.trim(),
+      description: input.description?.trim() || null,
+      kind: input.kind,
+      filePattern: input.filePattern?.trim() || null,
+      chapterPattern: input.chapterPattern?.trim() || null,
+      pagePattern: input.pagePattern?.trim() || null,
+      direction: input.direction,
+      priority: input.priority,
+      enabled: input.enabled,
+      system: false,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    this.archiveSortRules.push(rule);
+    this.audit("archive_sort_rule.create", "archive_sort_rule", rule.id);
+    return structuredClone(rule);
+  }
+
+  public async deleteArchiveSortRule(ruleId: string) {
+    await delay();
+    const index = this.archiveSortRules.findIndex((rule) => rule.id === ruleId);
+    const rule = this.archiveSortRules[index];
+    if (!rule) throw new AdminApiError("排序规则不存在", "NOT_FOUND");
+    if (rule.system) throw new AdminApiError("内置排序规则不能删除", "VALIDATION_FAILED");
+    this.archiveSortRules.splice(index, 1);
+    this.audit("archive_sort_rule.delete", "archive_sort_rule", ruleId);
+  }
+
   public async listAuditLogs() {
     await delay();
     return structuredClone(this.logs);
@@ -882,6 +983,7 @@ function mediaFromIngestion(
     isPrimary: false,
     logicalAssetId: input.logicalAssetId ?? null,
     parentAssetId: null,
+    archiveSortRuleId: input.archiveSortRuleId ?? null,
     variant: input.variant ?? null,
     presentationScope: input.presentationScope,
     ordinal: input.ordinal,
@@ -892,7 +994,11 @@ function mediaFromIngestion(
 }
 
 function mediaType(value: unknown): MediaAsset["type"] {
-  return value === "video" || value === "image" || value === "thumbnail" || value === "cover"
+  return value === "video" ||
+    value === "image" ||
+    value === "thumbnail" ||
+    value === "cover" ||
+    value === "archive"
     ? value
     : "file";
 }
@@ -1046,6 +1152,7 @@ function mockAsset(workId: string, unitId: string, index: number): MediaAsset {
     isPrimary: true,
     logicalAssetId: index === 0 ? null : uuid(700 + index),
     parentAssetId: null,
+    archiveSortRuleId: null,
     variant: index === 0 ? null : "browse",
     presentationScope: "protected_content",
     ordinal: 0,
@@ -1088,6 +1195,69 @@ const mockUsers: AdminUser[] = [
     memberExpiresAt: null,
     botSendStatus: "blocked",
     lastActiveAt: new Date(Date.now() - 86_400_000).toISOString(),
+  },
+];
+
+const mockArchiveSortRules: ArchiveSortRule[] = [
+  {
+    id: uuid(721),
+    name: "自然文件名",
+    description: "按文件名自然顺序排列，例如 page-2 位于 page-10 前。",
+    kind: "natural",
+    filePattern: null,
+    chapterPattern: null,
+    pagePattern: null,
+    direction: "asc",
+    priority: 100,
+    enabled: true,
+    system: true,
+    createdAt: now(),
+    updatedAt: now(),
+  },
+  {
+    id: uuid(722),
+    name: "数字序号",
+    description: "从完整路径中提取数字序列排序，兼容 001、1、10 等命名。",
+    kind: "numeric",
+    filePattern: null,
+    chapterPattern: null,
+    pagePattern: null,
+    direction: "asc",
+    priority: 110,
+    enabled: true,
+    system: true,
+    createdAt: now(),
+    updatedAt: now(),
+  },
+  {
+    id: uuid(723),
+    name: "章节与页码",
+    description: "先按章节，再按页码；可在自定义规则中补充正则表达式。",
+    kind: "chapter_page",
+    filePattern: null,
+    chapterPattern: null,
+    pagePattern: null,
+    direction: "asc",
+    priority: 120,
+    enabled: true,
+    system: true,
+    createdAt: now(),
+    updatedAt: now(),
+  },
+  {
+    id: uuid(724),
+    name: "目录路径",
+    description: "先按压缩包内目录，再按文件名自然顺序排列。",
+    kind: "path",
+    filePattern: null,
+    chapterPattern: null,
+    pagePattern: null,
+    direction: "asc",
+    priority: 130,
+    enabled: true,
+    system: true,
+    createdAt: now(),
+    updatedAt: now(),
   },
 ];
 
@@ -1141,6 +1311,24 @@ const mockIngestion: IngestionItem[] = [
     failureReason: null,
     createdAt: new Date(Date.now() - 86_400_000).toISOString(),
     updatedAt: new Date(Date.now() - 86_000_000).toISOString(),
+  },
+  {
+    id: uuid(704),
+    storageChatId: "-1000000000000",
+    sourceMessageId: 8203,
+    mediaMetadata: {
+      type: "archive",
+      archiveFormat: "cbz",
+      fileId: "mock-comic-archive",
+      fileName: "纸上城-第01卷.cbz",
+      mimeType: "application/vnd.comicbook+zip",
+      fileSize: 820_000_000,
+    },
+    status: "pending",
+    operatorAdminId: null,
+    failureReason: null,
+    createdAt: new Date(Date.now() - 900_000).toISOString(),
+    updatedAt: new Date(Date.now() - 900_000).toISOString(),
   },
 ];
 

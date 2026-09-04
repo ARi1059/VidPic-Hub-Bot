@@ -2,12 +2,14 @@ import { Inject, Injectable, NotFoundException, BadRequestException } from "@nes
 import {
   isUnitTypeAllowed,
   validateWorkPublication,
+  type CreateArchiveSortRuleRequest,
   type PublicationAssetSnapshot,
   type PublicationSectionSnapshot,
 } from "@film-bot/contracts";
 import type { Database } from "@film-bot/database";
 import {
   adminAuditLogs,
+  archiveSortRules,
   contentSections,
   contentUnits,
   ingestionItems,
@@ -26,6 +28,10 @@ type SectionInsert = typeof contentSections.$inferInsert;
 type UnitInsert = typeof contentUnits.$inferInsert;
 type MediaInsert = typeof mediaAssets.$inferInsert;
 type LoosePartial<T> = { [Key in keyof T]?: T[Key] | undefined };
+type ArchiveMediaInput = Pick<
+  MediaInsert,
+  "type" | "role" | "presentationScope" | "logicalAssetId" | "archiveSortRuleId" | "variant"
+>;
 
 interface AuditContext {
   adminId: string;
@@ -43,6 +49,7 @@ interface IngestionMetadata {
   width?: unknown;
   height?: unknown;
   durationSeconds?: unknown;
+  archiveFormat?: unknown;
 }
 
 @Injectable()
@@ -224,6 +231,10 @@ export class AdminService {
   public async createMedia(data: MediaInsert, audit: AuditContext) {
     ensureMediaOwner(data.workId ?? null, data.unitId ?? null);
     return this.database.transaction(async (transaction) => {
+      validateArchiveMediaInput(data);
+      if (data.type === "archive") {
+        await ensureArchiveSortRuleEnabled(transaction, data.archiveSortRuleId);
+      }
       const [created] = await transaction.insert(mediaAssets).values(data).returning();
       if (!created) throw new Error("Media insert returned no row");
       await transaction
@@ -241,6 +252,20 @@ export class AdminService {
         .where(eq(mediaAssets.id, mediaId));
       if (!before) throw new NotFoundException({ code: "NOT_FOUND", message: "媒体资源不存在" });
       ensureMediaOwner(data.workId ?? before.workId, data.unitId ?? before.unitId);
+      const nextArchiveInput = {
+        type: data.type ?? before.type,
+        role: data.role ?? before.role,
+        presentationScope: data.presentationScope ?? before.presentationScope,
+        logicalAssetId:
+          data.logicalAssetId === undefined ? before.logicalAssetId : data.logicalAssetId,
+        archiveSortRuleId:
+          data.archiveSortRuleId === undefined ? before.archiveSortRuleId : data.archiveSortRuleId,
+        variant: data.variant === undefined ? before.variant : data.variant,
+      };
+      validateArchiveMediaInput(nextArchiveInput);
+      if (nextArchiveInput.type === "archive") {
+        await ensureArchiveSortRuleEnabled(transaction, nextArchiveInput.archiveSortRuleId);
+      }
       const width = data.width === undefined ? before.width : data.width;
       const height = data.height === undefined ? before.height : data.height;
       const [updated] = await transaction
@@ -509,6 +534,88 @@ export class AdminService {
     return jsonSafe(rows);
   }
 
+  public async listArchiveSortRules() {
+    const rules = await this.database
+      .select()
+      .from(archiveSortRules)
+      .orderBy(
+        desc(archiveSortRules.system),
+        asc(archiveSortRules.priority),
+        asc(archiveSortRules.name),
+      );
+    return jsonSafe(rules);
+  }
+
+  public async createArchiveSortRule(input: CreateArchiveSortRuleRequest, audit: AuditContext) {
+    validateArchiveRulePatterns(input);
+    return this.database.transaction(async (transaction) => {
+      const [created] = await transaction
+        .insert(archiveSortRules)
+        .values({
+          name: input.name,
+          description: input.description ?? null,
+          kind: input.kind,
+          filePattern: input.filePattern ?? null,
+          chapterPattern: input.chapterPattern ?? null,
+          pagePattern: input.pagePattern ?? null,
+          direction: input.direction,
+          priority: input.priority,
+          enabled: input.enabled,
+          system: false,
+          createdByAdminId: audit.adminId,
+        })
+        .returning();
+      if (!created) throw new Error("Archive sort rule insert returned no row");
+      await transaction
+        .insert(adminAuditLogs)
+        .values(
+          auditValues(
+            audit,
+            "archive_sort_rule.create",
+            "archive_sort_rule",
+            created.id,
+            null,
+            created,
+          ),
+        );
+      return jsonSafe(created);
+    });
+  }
+
+  public async deleteArchiveSortRule(ruleId: string, audit: AuditContext) {
+    return this.database.transaction(async (transaction) => {
+      const [rule] = await transaction
+        .select()
+        .from(archiveSortRules)
+        .where(eq(archiveSortRules.id, ruleId));
+      if (!rule) throw new NotFoundException({ code: "NOT_FOUND", message: "排序规则不存在" });
+      if (rule.system) {
+        throw new BadRequestException({
+          code: "VALIDATION_FAILED",
+          message: "内置排序规则不能删除",
+        });
+      }
+      const [inUse] = await transaction
+        .select({ id: mediaAssets.id })
+        .from(mediaAssets)
+        .where(eq(mediaAssets.archiveSortRuleId, ruleId))
+        .limit(1);
+      if (inUse) {
+        throw new BadRequestException({
+          code: "CONFLICT",
+          message: "排序规则已被压缩包导入源使用，不能删除",
+        });
+      }
+      await transaction.delete(archiveSortRules).where(eq(archiveSortRules.id, ruleId));
+      await transaction
+        .insert(adminAuditLogs)
+        .values(
+          auditValues(audit, "archive_sort_rule.delete", "archive_sort_rule", ruleId, rule, null),
+        );
+      return { id: ruleId };
+    });
+  }
+
   public async attachIngestion(
     ingestionId: string,
     input: {
@@ -518,6 +625,7 @@ export class AdminService {
       variant?: "source" | "browse" | "thumbnail" | null | undefined;
       presentationScope: "public_preview" | "protected_content";
       logicalAssetId?: string | null | undefined;
+      archiveSortRuleId?: string | null | undefined;
       ordinal: number;
     },
     audit: AuditContext,
@@ -543,6 +651,17 @@ export class AdminService {
       }
       const width = numberValue(metadata.width);
       const height = numberValue(metadata.height);
+      validateArchiveMediaInput({
+        type,
+        role: input.role,
+        presentationScope: input.presentationScope,
+        logicalAssetId: input.logicalAssetId,
+        archiveSortRuleId: input.archiveSortRuleId,
+        variant: input.variant,
+      });
+      if (type === "archive") {
+        await ensureArchiveSortRuleEnabled(transaction, input.archiveSortRuleId);
+      }
       const [asset] = await transaction
         .insert(mediaAssets)
         .values({
@@ -562,6 +681,7 @@ export class AdminService {
           durationSeconds: numberValue(metadata.durationSeconds),
           pixelCount: width && height ? width * height : null,
           logicalAssetId: input.logicalAssetId,
+          archiveSortRuleId: input.archiveSortRuleId ?? null,
           variant: input.variant,
           presentationScope: input.presentationScope,
           ordinal: input.ordinal,
@@ -713,14 +833,90 @@ function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function mediaTypeValue(value: unknown): "video" | "image" | "thumbnail" | "cover" | "file" | null {
+function mediaTypeValue(
+  value: unknown,
+): "video" | "image" | "thumbnail" | "cover" | "file" | "archive" | null {
   return value === "video" ||
     value === "image" ||
     value === "thumbnail" ||
     value === "cover" ||
-    value === "file"
+    value === "file" ||
+    value === "archive"
     ? value
     : null;
+}
+
+export function validateArchiveMediaInput(input: ArchiveMediaInput) {
+  if (input.type === "archive") {
+    if (input.role !== "archive_source") {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "压缩包入库角色必须为 archive_source",
+      });
+    }
+    if (input.variant || input.logicalAssetId) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "压缩包导入源不能设置图片版本或逻辑资源 ID",
+      });
+    }
+    if (input.presentationScope !== "protected_content") {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "压缩包导入源必须保持受保护范围",
+      });
+    }
+    return;
+  }
+  if (input.archiveSortRuleId) {
+    throw new BadRequestException({
+      code: "VALIDATION_FAILED",
+      message: "只有压缩包导入源可以关联图片排序规则",
+    });
+  }
+}
+
+async function ensureArchiveSortRuleEnabled(
+  database: Pick<Database, "select">,
+  archiveSortRuleId: string | null | undefined,
+) {
+  if (!archiveSortRuleId) {
+    throw new BadRequestException({
+      code: "VALIDATION_FAILED",
+      message: "压缩包入库必须选择图片排序规则",
+    });
+  }
+  const [rule] = await database
+    .select({ id: archiveSortRules.id, enabled: archiveSortRules.enabled })
+    .from(archiveSortRules)
+    .where(eq(archiveSortRules.id, archiveSortRuleId));
+  if (!rule || !rule.enabled) {
+    throw new BadRequestException({
+      code: "VALIDATION_FAILED",
+      message: "图片排序规则不可用",
+    });
+  }
+}
+
+function validateArchiveRulePatterns(input: CreateArchiveSortRuleRequest) {
+  for (const [label, pattern] of [
+    ["图片过滤", input.filePattern],
+    ["章节", input.chapterPattern],
+    ["页码", input.pagePattern],
+  ] as const) {
+    if (!pattern) continue;
+    if (/(?:\\\\[1-9]|\(\?<=[^)]*\)|\(\?<![^)]*\)|\([^)]*[+*][^)]*\)[+*{])/u.test(pattern)) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `${label}正则不支持回溯引用、后行断言或嵌套量词`,
+      });
+    }
+    try {
+      new RegExp(pattern, "u");
+    } catch {
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: `${label}正则无效` });
+    }
+  }
 }
 
 function cleanUpdate<T extends object>(value: object): T {

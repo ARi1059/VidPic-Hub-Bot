@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Inject,
@@ -13,6 +14,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  createArchiveSortRuleRequestSchema,
   createMediaAssetRequestSchema,
   createSectionRequestSchema,
   createUnitRequestSchema,
@@ -228,6 +230,27 @@ export class AdminController {
   public ingestion(@Req() request: FastifyRequest) {
     requirePermission(request, "ingestion.read");
     return this.admin.listIngestionItems();
+  }
+
+  @Get("archive-sort-rules")
+  public archiveSortRules(@Req() request: FastifyRequest) {
+    requirePermission(request, "ingestion.read");
+    return this.admin.listArchiveSortRules();
+  }
+
+  @Post("archive-sort-rules")
+  public createArchiveSortRule(@Req() request: FastifyRequest, @Body() body: unknown) {
+    requirePermission(request, "ingestion.manage");
+    return this.admin.createArchiveSortRule(
+      parse(createArchiveSortRuleRequestSchema, body),
+      auditContext(request),
+    );
+  }
+
+  @Delete("archive-sort-rules/:ruleId")
+  public deleteArchiveSortRule(@Req() request: FastifyRequest, @Param("ruleId") ruleId: string) {
+    requirePermission(request, "ingestion.manage");
+    return this.admin.deleteArchiveSortRule(parse(idSchema, ruleId), auditContext(request));
   }
 
   @Post("ingestion/:ingestionId/attach")

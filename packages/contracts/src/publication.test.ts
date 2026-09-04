@@ -27,6 +27,22 @@ function image(
   };
 }
 
+function video(id: string): PublicationAssetSnapshot {
+  return {
+    id,
+    type: "video",
+    variant: null,
+    presentationScope: "protected_content",
+    status: "available",
+    logicalAssetId: null,
+    mimeType: "video/mp4",
+    fileSize: 1_000_000,
+    width: 1920,
+    height: 1080,
+    ordinal: 0,
+  };
+}
+
 function validGallery(): WorkPublicationSnapshot {
   const logicalId = "11111111-1111-4111-8111-111111111111";
   return {
@@ -96,23 +112,61 @@ describe("validateWorkPublication", () => {
     const unit = snapshot.sections[0]?.units[0];
     if (!unit) throw new Error("fixture missing unit");
     unit.type = "comic_chapter";
+    unit.assets = [video("video")];
+    expect(validateWorkPublication(snapshot).map((issue) => issue.code)).toContain(
+      "COMIC_VIDEO_FORBIDDEN",
+    );
+  });
+
+  it("rejects an archive source as the only comic chapter media", () => {
+    const snapshot = validGallery();
+    snapshot.type = "comic";
+    const unit = snapshot.sections[0]?.units[0];
+    if (!unit) throw new Error("fixture missing unit");
+    unit.type = "comic_chapter";
     unit.assets = [
       {
-        id: "video",
-        type: "video",
+        id: "source-archive",
+        type: "archive",
         variant: null,
         presentationScope: "protected_content",
         status: "available",
         logicalAssetId: null,
-        mimeType: "video/mp4",
+        mimeType: "application/zip",
         fileSize: 1_000_000,
-        width: 1920,
-        height: 1080,
+        width: null,
+        height: null,
         ordinal: 0,
       },
     ];
-    expect(validateWorkPublication(snapshot).map((issue) => issue.code)).toContain(
-      "COMIC_VIDEO_FORBIDDEN",
+
+    const issues = validateWorkPublication(snapshot);
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        code: "AVAILABLE_MEDIA_REQUIRED",
+        message: "图片内容单元至少需要一个完整的图片页面资源",
+      }),
     );
+    expect(issues).toContainEqual(
+      expect.objectContaining({ code: "ARCHIVE_SOURCE_NOT_PUBLISHABLE" }),
+    );
+  });
+
+  it("requires a video asset for published video units", () => {
+    const snapshot = validGallery();
+    snapshot.type = "video";
+    const unit = snapshot.sections[0]?.units[0];
+    if (!unit) throw new Error("fixture missing unit");
+    unit.type = "movie";
+
+    expect(validateWorkPublication(snapshot)).toContainEqual(
+      expect.objectContaining({
+        code: "AVAILABLE_MEDIA_REQUIRED",
+        message: "视频内容单元至少需要一个可用视频资源",
+      }),
+    );
+
+    unit.assets = [video("movie-video")];
+    expect(validateWorkPublication(snapshot)).toEqual([]);
   });
 });
